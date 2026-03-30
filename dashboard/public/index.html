@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard — Clinical Report</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #060a14;
+      --surface: rgba(255,255,255,0.035);
+      --glass: rgba(255,255,255,0.05);
+      --glass-border: rgba(255,255,255,0.08);
+      --text: #e8eaf6;
+      --text-dim: #8892b0;
+      --text-muted: #4a5078;
+      --icu: #42a5f5;
+      --rad: #b388ff;
+
+      --success: #66bb6a;
+      --danger: #ef5350;
+      --warning: #ffa726;
+      --gold: #ffd54f;
+      --radius: 16px;
+      --radius-sm: 10px;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    body::before {
+      content:'';
+      position:fixed; inset:0; pointer-events:none; z-index:0;
+      background:
+        radial-gradient(ellipse at 10% 20%, rgba(66,165,245,0.07) 0%, transparent 50%),
+        radial-gradient(ellipse at 90% 80%, rgba(179,136,255,0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 50%, rgba(105,240,174,0.04) 0%, transparent 60%);
+    }
+
+    .dashboard {
+      position:relative; z-index:1;
+      max-width:960px; margin:0 auto; padding:28px 20px 60px;
+    }
+
+    /* ─── Title Bar ─── */
+    .title-bar {
+      display:flex; align-items:center; justify-content:space-between;
+      margin-bottom:24px;
+    }
+    .title-left { display:flex; align-items:center; gap:14px; }
+    .title-icon {
+      font-size:2.2rem; width:56px; height:56px;
+      display:flex; align-items:center; justify-content:center;
+      background:linear-gradient(135deg, rgba(66,165,245,0.15), rgba(179,136,255,0.15));
+      border-radius:14px; border:1px solid var(--glass-border);
+    }
+    .title-text h1 { font-size:1.3rem; font-weight:700; letter-spacing:-0.5px; }
+    .title-text p { font-size:0.75rem; color:var(--text-dim); margin-top:2px; }
+    .title-right { display:flex; gap:10px; }
+
+    /* ─── Buttons ─── */
+    .btn {
+      padding:10px 20px; border-radius:var(--radius-sm); border:none;
+      font-family:inherit; font-size:0.78rem; font-weight:600;
+      cursor:pointer; transition:all 0.2s; text-transform:uppercase; letter-spacing:0.5px;
+    }
+    .btn:active { transform:scale(0.97); }
+    .btn-lock {
+      background:linear-gradient(135deg, var(--danger), #c62828);
+      color:white;
+    }
+    .btn-lock:hover { box-shadow:0 4px 20px rgba(239,83,80,0.3); }
+    .btn-unlock {
+      background:linear-gradient(135deg, var(--success), #2e7d32);
+      color:white;
+    }
+    .btn-unlock:hover { box-shadow:0 4px 20px rgba(102,187,106,0.3); }
+
+    /* ─── Patient Header ─── */
+    .patient-header {
+      background: linear-gradient(135deg, rgba(66,165,245,0.1), rgba(179,136,255,0.08), rgba(105,240,174,0.06));
+      border:1px solid var(--glass-border);
+      border-radius:var(--radius); padding:22px 28px;
+      margin-bottom:20px; backdrop-filter:blur(16px);
+      position:relative; overflow:hidden;
+    }
+    .patient-header::before {
+      content:''; position:absolute; top:0; left:0; right:0; height:3px;
+      background:linear-gradient(90deg, var(--icu), var(--rad));
+    }
+    .ph-row1 { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+    .ph-name { font-size:1.35rem; font-weight:700; }
+    .ph-age { font-size:0.9rem; color:var(--text-dim); }
+    .ph-row2 { margin-top:8px; font-size:0.85rem; color:var(--text-dim); }
+    .ph-diagnosis {
+      display:inline-block; margin-top:10px; padding:5px 14px;
+      background:rgba(255,167,38,0.12); border:1px solid rgba(255,167,38,0.2);
+      border-radius:6px; font-size:0.8rem; font-weight:500; color:var(--warning);
+    }
+    .ph-lock-badge {
+      position:absolute; top:18px; right:24px;
+      padding:4px 12px; border-radius:20px; font-size:0.7rem; font-weight:600; letter-spacing:0.5px;
+    }
+    .ph-lock-badge.locked { background:rgba(239,83,80,0.2); color:var(--danger); }
+    .ph-lock-badge.unlocked { background:rgba(102,187,106,0.12); color:var(--success); }
+
+    /* ─── Node Status Cards ─── */
+    .node-cards {
+      display:grid; grid-template-columns:repeat(2,1fr);
+      gap:14px; margin-bottom:20px;
+    }
+    .node-card {
+      background:var(--glass); border:1px solid var(--glass-border);
+      border-radius:var(--radius-sm); padding:16px 20px;
+      backdrop-filter:blur(12px); transition:border-color 0.3s, background 0.3s;
+      position:relative; overflow:hidden;
+    }
+    .node-card::before {
+      content:''; position:absolute; top:0; left:0; right:0; height:2px;
+      transition: background 0.3s;
+    }
+    .node-card.icu::before { background:var(--icu); }
+    .node-card.rad::before { background:var(--rad); }
+
+    .node-card.offline { border-color:rgba(239,83,80,0.2); background:rgba(239,83,80,0.04); }
+    .node-card.offline::before { background:var(--danger) !important; }
+    .nc-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+    .nc-name { font-weight:600; font-size:0.9rem; }
+    .nc-dot {
+      width:10px; height:10px; border-radius:50%;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .nc-dot.online { background:var(--success); box-shadow:0 0 10px var(--success); }
+    .nc-dot.offline { background:var(--danger); box-shadow:0 0 10px var(--danger); animation:pulse 1.5s infinite; }
+    .nc-dot.unknown { background:var(--text-muted); }
+    .nc-role { font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+
+    /* ─── Clinical Section ─── */
+    .section {
+      background:var(--glass); border:1px solid var(--glass-border);
+      border-radius:var(--radius); margin-bottom:16px;
+      overflow:hidden; backdrop-filter:blur(12px);
+    }
+    .section-hdr {
+      padding:14px 24px;
+      display:flex; align-items:center; justify-content:space-between;
+      border-bottom:1px solid var(--glass-border);
+      font-size:0.75rem; font-weight:600; text-transform:uppercase; letter-spacing:1.5px;
+    }
+    .section-hdr .badge {
+      font-size:0.6rem; padding:3px 8px; border-radius:4px; font-weight:500;
+    }
+    .section.icu .section-hdr { color:var(--icu); background:rgba(66,165,245,0.05); }
+    .section.icu .badge { background:rgba(66,165,245,0.12); color:var(--icu); }
+    .section.rad .section-hdr { color:var(--rad); background:rgba(179,136,255,0.05); }
+    .section.rad .badge { background:rgba(179,136,255,0.12); color:var(--rad); }
+
+
+    .section-body { padding:14px 24px; }
+    .field-row {
+      display:flex; justify-content:space-between; align-items:baseline;
+      padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.03);
+      transition: background 0.4s;
+    }
+    .field-row:last-child { border-bottom:none; }
+    .field-label { font-size:0.78rem; color:var(--text-dim); font-weight:500; min-width:150px; }
+    .field-value { font-size:0.85rem; color:var(--text); text-align:right; flex:1; word-break:break-word; }
+    .field-value.empty { color:var(--text-muted); font-style:italic; }
+    .field-row.highlight {
+      background:rgba(66,165,245,0.12); border-radius:6px;
+      padding:7px 10px; margin:2px -10px;
+    }
+
+    /* ─── Audit Log ─── */
+    .section.audit .section-hdr { color:var(--gold); background:rgba(255,213,79,0.04); }
+    .section.audit .badge { background:rgba(255,213,79,0.12); color:var(--gold); }
+    .audit-table {
+      width:100%; border-collapse:collapse; font-size:0.78rem;
+    }
+    .audit-table th {
+      text-align:left; padding:8px 6px; color:var(--text-muted);
+      font-weight:500; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.5px;
+      border-bottom:1px solid var(--glass-border);
+    }
+    .audit-table td {
+      padding:7px 6px; border-bottom:1px solid rgba(255,255,255,0.03);
+      vertical-align:top;
+    }
+    .audit-node {
+      display:inline-block; padding:1px 6px; border-radius:3px;
+      font-size:0.7rem; font-weight:600;
+    }
+    .audit-node.ICU { background:rgba(66,165,245,0.15); color:var(--icu); }
+    .audit-node.RAD { background:rgba(179,136,255,0.15); color:var(--rad); }
+
+    .audit-scroll { max-height:280px; overflow-y:auto; }
+    .audit-scroll::-webkit-scrollbar { width:4px; }
+    .audit-scroll::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.1); border-radius:2px; }
+    .audit-entry-new { animation:fadeIn 0.4s ease; }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(-6px);} to{opacity:1;transform:translateY(0);} }
+
+    /* ─── Connection indicator ─── */
+    .conn-badge {
+      position:fixed; bottom:16px; right:16px;
+      padding:6px 14px; border-radius:20px;
+      font-size:0.68rem; font-weight:600; letter-spacing:0.5px;
+      z-index:100; backdrop-filter:blur(8px);
+    }
+    .conn-badge.connected { background:rgba(102,187,106,0.15); color:var(--success); border:1px solid rgba(102,187,106,0.2); }
+    .conn-badge.disconnected { background:rgba(239,83,80,0.15); color:var(--danger); border:1px solid rgba(239,83,80,0.2); }
+
+    /* ─── Responsive ─── */
+    @media (max-width:700px) {
+      .node-cards { grid-template-columns:1fr; }
+      .title-bar { flex-direction:column; gap:14px; }
+      .title-right { width:100%; }
+      .btn { flex:1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard">
+    <!-- Title Bar -->
+    <div class="title-bar">
+      <div class="title-left">
+        <div class="title-icon">🏥</div>
+        <div class="title-text">
+          <h1>Admin Dashboard</h1>
+          <p>Distributed Clinical Report System — Live Monitor</p>
+        </div>
+      </div>
+      <div class="title-right">
+        <button class="btn btn-lock" id="btnLock" onclick="lockDoc()">🔒 Lock Document</button>
+        <button class="btn btn-unlock" id="btnUnlock" onclick="unlockDoc()">🔓 Unlock</button>
+      </div>
+    </div>
+
+    <!-- Patient Header -->
+    <div class="patient-header">
+      <div class="ph-lock-badge unlocked" id="lockBadge">🔓 UNLOCKED</div>
+      <div class="ph-row1">
+        <span class="ph-name" id="phName">Waiting for data...</span>
+        <span class="ph-age" id="phAge"></span>
+      </div>
+      <div class="ph-row2" id="phAdmission"></div>
+      <div class="ph-diagnosis" id="phDiagnosis" style="display:none;"></div>
+    </div>
+
+    <!-- Node Status Cards -->
+    <div class="node-cards">
+      <div class="node-card icu" id="card-ICU">
+        <div class="nc-top">
+          <span class="nc-name">🏥 ICU</span>
+          <span class="nc-dot unknown" id="dot-ICU"></span>
+        </div>
+        <div class="nc-role">Doctor</div>
+      </div>
+      <div class="node-card rad" id="card-RAD">
+        <div class="nc-top">
+          <span class="nc-name">🔬 Radiology</span>
+          <span class="nc-dot unknown" id="dot-RAD"></span>
+        </div>
+        <div class="nc-role">Doctor</div>
+      </div>
+    </div>
+
+    <!-- ICU Section -->
+    <div class="section icu">
+      <div class="section-hdr">
+        <span>🏥 &nbsp;ICU Vitals</span>
+        <span class="badge">CRITICAL CARE</span>
+      </div>
+      <div class="section-body">
+        <div class="field-row" id="row-icu.bp"><span class="field-label">Blood Pressure</span><span class="field-value empty" id="val-icu.bp">—</span></div>
+        <div class="field-row" id="row-icu.oxygen_saturation"><span class="field-label">Oxygen Saturation</span><span class="field-value empty" id="val-icu.oxygen_saturation">—</span></div>
+        <div class="field-row" id="row-icu.heart_rate"><span class="field-label">Heart Rate</span><span class="field-value empty" id="val-icu.heart_rate">—</span></div>
+        <div class="field-row" id="row-icu.treatment"><span class="field-label">Treatment</span><span class="field-value empty" id="val-icu.treatment">—</span></div>
+        <div class="field-row" id="row-icu.notes"><span class="field-label">ICU Notes</span><span class="field-value empty" id="val-icu.notes">—</span></div>
+      </div>
+    </div>
+
+    <!-- Radiology Section -->
+    <div class="section rad">
+      <div class="section-hdr">
+        <span>🔬 &nbsp;Radiology</span>
+        <span class="badge">IMAGING</span>
+      </div>
+      <div class="section-body">
+        <div class="field-row" id="row-radiology.xray"><span class="field-label">X-Ray</span><span class="field-value empty" id="val-radiology.xray">—</span></div>
+        <div class="field-row" id="row-radiology.echo"><span class="field-label">Echo</span><span class="field-value empty" id="val-radiology.echo">—</span></div>
+        <div class="field-row" id="row-radiology.notes"><span class="field-label">Radiology Notes</span><span class="field-value empty" id="val-radiology.notes">—</span></div>
+      </div>
+    </div>
+
+
+
+    <!-- Audit Log -->
+    <div class="section audit">
+      <div class="section-hdr">
+        <span>📜 &nbsp;Audit Log</span>
+        <span class="badge" id="auditCount">0 ENTRIES</span>
+      </div>
+      <div class="section-body" style="padding:0;">
+        <div class="audit-scroll" id="auditScroll">
+          <table class="audit-table">
+            <thead>
+              <tr><th>Time</th><th>Node</th><th>TS</th><th>Op</th><th>Field</th><th>Value</th></tr>
+            </thead>
+            <tbody id="auditBody">
+              <tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted);">Waiting for updates...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="conn-badge disconnected" id="connBadge">⚡ CONNECTING...</div>
+
+  <script>
+    // ═════════════════════════════════════
+    //  STATE
+    // ═════════════════════════════════════
+    let ws = null;
+    let report = null;
+    let nodesStatus = {};
+    let auditLog = [];
+    let docLocked = false;
+
+    const ALL_FIELDS = [
+      'icu.bp','icu.oxygen_saturation','icu.heart_rate','icu.treatment','icu.notes',
+      'radiology.xray','radiology.echo','radiology.notes'
+    ];
+
+    // ═════════════════════════════════════
+    //  WEBSOCKET
+    // ═════════════════════════════════════
+    function connect() {
+      const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${protocol}://${location.host}`);
+
+      ws.onopen = () => {
+        document.getElementById('connBadge').textContent = '⚡ LIVE';
+        document.getElementById('connBadge').className = 'conn-badge connected';
+      };
+
+      ws.onclose = () => {
+        document.getElementById('connBadge').textContent = '⚡ RECONNECTING...';
+        document.getElementById('connBadge').className = 'conn-badge disconnected';
+        setTimeout(connect, 2000);
+      };
+
+      ws.onmessage = (evt) => {
+        const data = JSON.parse(evt.data);
+        handleMessage(data);
+      };
+    }
+
+    function handleMessage(data) {
+      if (data.type === 'initial_state' || data.type === 'report_update') {
+        if (data.report) {
+          report = data.report;
+          renderReport(data.field);
+          renderPatient();
+        }
+        if (data.nodes_status) {
+          nodesStatus = data.nodes_status;
+          renderNodes();
+        }
+        if (data.audit_log) {
+          auditLog = data.audit_log;
+          renderAudit();
+        }
+        if (typeof data.locked !== 'undefined') {
+          docLocked = data.locked;
+          renderLock();
+        }
+      }
+      else if (data.type === 'lock_status') {
+        docLocked = data.locked;
+        renderLock();
+      }
+    }
+
+    // ═════════════════════════════════════
+    //  RENDER
+    // ═════════════════════════════════════
+    function getField(obj, path) {
+      const keys = path.split('.');
+      let cur = obj;
+      for (const k of keys) {
+        if (!cur || typeof cur !== 'object') return null;
+        cur = cur[k];
+      }
+      return cur;
+    }
+
+    function renderPatient() {
+      if (!report) return;
+      document.getElementById('phName').textContent = report.patient_name || 'Unknown';
+      document.getElementById('phAge').textContent = `${report.age || '?'}M`;
+      document.getElementById('phAdmission').textContent = `Admitted: ${report.admission_date || '—'}`;
+      const diag = document.getElementById('phDiagnosis');
+      if (report.diagnosis) {
+        diag.textContent = report.diagnosis;
+        diag.style.display = 'inline-block';
+      }
+    }
+
+    function renderReport(highlightField) {
+      if (!report) return;
+      for (const f of ALL_FIELDS) {
+        const el = document.getElementById(`val-${f}`);
+        if (!el) continue;
+        const val = getField(report, f);
+        if (val && String(val).trim()) {
+          el.textContent = val;
+          el.classList.remove('empty');
+        } else {
+          el.textContent = '—';
+          el.classList.add('empty');
+        }
+        // Highlight
+        const row = document.getElementById(`row-${f}`);
+        if (row && f === highlightField) {
+          row.classList.add('highlight');
+          setTimeout(() => row.classList.remove('highlight'), 1800);
+        }
+      }
+    }
+
+    function renderNodes() {
+      for (const [id, status] of Object.entries(nodesStatus)) {
+        const dot = document.getElementById(`dot-${id}`);
+        const card = document.getElementById(`card-${id}`);
+        if (dot) {
+          dot.className = `nc-dot ${status.toLowerCase()}`;
+        }
+        if (card) {
+          card.classList.toggle('offline', status === 'OFFLINE');
+        }
+      }
+    }
+
+    function renderLock() {
+      const badge = document.getElementById('lockBadge');
+      if (docLocked) {
+        badge.textContent = '🔒 LOCKED';
+        badge.className = 'ph-lock-badge locked';
+      } else {
+        badge.textContent = '🔓 UNLOCKED';
+        badge.className = 'ph-lock-badge unlocked';
+      }
+    }
+
+    function renderAudit() {
+      const tbody = document.getElementById('auditBody');
+      const countEl = document.getElementById('auditCount');
+      countEl.textContent = `${auditLog.length} ENTRIES`;
+
+      if (auditLog.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted);">No entries yet</td></tr>';
+        return;
+      }
+
+      // Show latest first
+      const reversed = [...auditLog].reverse();
+      tbody.innerHTML = reversed.map((e, i) => `
+        <tr class="${i === 0 ? 'audit-entry-new' : ''}">
+          <td style="color:var(--text-muted);white-space:nowrap;">${e.time || '—'}</td>
+          <td><span class="audit-node ${e.node_id}">${e.node_id}</span></td>
+          <td style="color:var(--text-dim);">${e.lamport_ts}</td>
+          <td style="color:var(--text-dim);text-transform:uppercase;font-size:0.7rem;">${e.operation}</td>
+          <td style="color:var(--text);">${e.field}</td>
+          <td style="color:var(--text);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">"${truncate(e.value, 50)}"</td>
+        </tr>
+      `).join('');
+
+      // Scroll to top (latest)
+      document.getElementById('auditScroll').scrollTop = 0;
+    }
+
+    // ═════════════════════════════════════
+    //  ACTIONS
+    // ═════════════════════════════════════
+    async function lockDoc() {
+      await fetch('/api/lock', { method: 'POST' });
+    }
+
+    async function unlockDoc() {
+      await fetch('/api/unlock', { method: 'POST' });
+    }
+
+    // ═════════════════════════════════════
+    //  HELPERS
+    // ═════════════════════════════════════
+    function truncate(s, n) {
+      if (!s) return '';
+      return s.length > n ? s.slice(0, n) + '…' : s;
+    }
+
+    // ═════════════════════════════════════
+    //  BOOT
+    // ═════════════════════════════════════
+    connect();
+  </script>
+</body>
+</html>

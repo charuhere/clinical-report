@@ -1,0 +1,19 @@
+{
+  "patient_name": "Rajesh Kumar",
+  "age": 52,
+  "admission_date": "28-Mar-2026",
+  "diagnosis": "Acute Myocardial Infarction",
+  "icu": {
+    "bp": "120/80 mmHg",
+    "oxygen_saturation": "not recorded",
+    "heart_rate": "90 bpm",
+    "treatment": "not started",
+    "notes": ""
+  },
+  "radiology": {
+    "xray": "Entry by RAD at TS=7",
+    "echo": "pending",
+    "notes": ""
+  },
+  "version": 0
+}

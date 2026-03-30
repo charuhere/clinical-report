@@ -1,0 +1,18 @@
+{
+  "node_id": "ICU",
+  "role": "doctor",
+  "owned_fields": [
+    "icu.bp",
+    "icu.oxygen_saturation",
+    "icu.heart_rate",
+    "icu.treatment",
+    "icu.notes"
+  ],
+  "tcp_port": 5001,
+  "udp_port": 6001,
+  "http_port": 8001,
+  "peers": [
+    { "node_id": "RAD", "host": "localhost", "tcp_port": 5002, "udp_port": 6002 }
+  ],
+  "dashboard_port": 7000
+}

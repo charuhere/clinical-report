@@ -1,0 +1,16 @@
+{
+  "node_id": "RAD",
+  "role": "doctor",
+  "owned_fields": [
+    "radiology.xray",
+    "radiology.echo",
+    "radiology.notes"
+  ],
+  "tcp_port": 5002,
+  "udp_port": 6002,
+  "http_port": 8002,
+  "peers": [
+    { "node_id": "ICU", "host": "localhost", "tcp_port": 5001, "udp_port": 6001 }
+  ],
+  "dashboard_port": 7000
+}

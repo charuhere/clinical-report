@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clinical Report Node</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0e1a;
+      --surface: rgba(255,255,255,0.04);
+      --surface-hover: rgba(255,255,255,0.07);
+      --glass: rgba(255,255,255,0.06);
+      --glass-border: rgba(255,255,255,0.1);
+      --text: #e8eaf6;
+      --text-dim: #7986cb;
+      --text-muted: #4a5078;
+      --accent: #42a5f5;
+      --accent-glow: rgba(66,165,245,0.25);
+      --success: #66bb6a;
+      --danger: #ef5350;
+      --warning: #ffa726;
+      --icu-color: #42a5f5;
+      --rad-color: #b388ff;
+      --radius: 14px;
+      --radius-sm: 8px;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    body::before {
+      content:'';
+      position:fixed; inset:0;
+      background: radial-gradient(ellipse at 20% 0%, var(--accent-glow) 0%, transparent 50%),
+                  radial-gradient(ellipse at 80% 100%, rgba(179,136,255,0.08) 0%, transparent 50%);
+      pointer-events:none; z-index:0;
+    }
+    .container {
+      position:relative; z-index:1;
+      max-width: 840px;
+      margin: 0 auto;
+      padding: 24px 20px 60px;
+    }
+
+    /* ─── Header ─── */
+    .header {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      padding: 20px 28px;
+      margin-bottom: 20px;
+      backdrop-filter: blur(20px);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .header-left { display:flex; align-items:center; gap:14px; }
+    .node-icon {
+      font-size: 2rem;
+      width: 52px; height: 52px;
+      display:flex; align-items:center; justify-content:center;
+      background: var(--accent-glow);
+      border-radius: 12px;
+    }
+    .node-name { font-size:1.5rem; font-weight:700; letter-spacing:-0.5px; }
+    .node-role { font-size:0.8rem; font-weight:500; color:var(--text-dim); text-transform:uppercase; letter-spacing:1.5px; }
+    .header-right { text-align:right; }
+    .ts-label { font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; }
+    .ts-value { font-size:1.8rem; font-weight:700; color:var(--accent); font-variant-numeric:tabular-nums; }
+    .lock-indicator {
+      display:inline-block; padding:3px 10px; border-radius:20px; font-size:0.7rem; font-weight:600;
+      margin-top:4px; letter-spacing:0.5px;
+    }
+    .lock-indicator.locked { background:rgba(239,83,80,0.2); color:var(--danger); }
+    .lock-indicator.unlocked { background:rgba(102,187,106,0.15); color:var(--success); }
+
+    /* ─── Patient Info ─── */
+    .patient-bar {
+      background: linear-gradient(135deg, rgba(66,165,245,0.12), rgba(179,136,255,0.08));
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      padding: 16px 24px;
+      margin-bottom: 20px;
+      backdrop-filter: blur(12px);
+    }
+    .patient-name { font-size:1.15rem; font-weight:600; }
+    .patient-details { font-size:0.85rem; color:var(--text-dim); margin-top:4px; }
+    .patient-diagnosis {
+      margin-top:8px; padding:5px 12px; display:inline-block;
+      background:rgba(255,167,38,0.12); border:1px solid rgba(255,167,38,0.2);
+      border-radius:6px; font-size:0.8rem; font-weight:500; color:var(--warning);
+    }
+
+    /* ─── Section Cards ─── */
+    .section {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      margin-bottom: 16px;
+      overflow: hidden;
+      backdrop-filter: blur(12px);
+    }
+    .section-header {
+      padding: 14px 22px;
+      display:flex; align-items:center; justify-content:space-between;
+      font-size:0.75rem; font-weight:600; text-transform:uppercase; letter-spacing:1.5px;
+      border-bottom: 1px solid var(--glass-border);
+    }
+    .section-header .badge {
+      font-size:0.65rem; padding:2px 8px; border-radius:4px; font-weight:500;
+    }
+    .section-body { padding: 16px 22px; }
+
+    .section.icu .section-header { color:var(--icu-color); background:rgba(66,165,245,0.06); }
+    .section.icu .section-header .badge { background:rgba(66,165,245,0.15); color:var(--icu-color); }
+    .section.rad .section-header { color:var(--rad-color); background:rgba(179,136,255,0.06); }
+    .section.rad .section-header .badge { background:rgba(179,136,255,0.15); color:var(--rad-color); }
+
+    /* ─── Field Rows (Read-Only) ─── */
+    .field-row {
+      display:flex; justify-content:space-between; align-items:baseline;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      transition: background 0.4s;
+    }
+    .field-row:last-child { border-bottom:none; }
+    .field-label { font-size:0.8rem; color:var(--text-dim); font-weight:500; min-width:140px; }
+    .field-value { font-size:0.85rem; color:var(--text); text-align:right; flex:1; word-break:break-word; }
+    .field-value.empty { color:var(--text-muted); font-style:italic; }
+
+    .field-row.highlight {
+      background: var(--accent-glow);
+      border-radius: 6px;
+      padding: 6px 8px;
+      margin: 2px -8px;
+    }
+
+    /* ─── Editable Fields ─── */
+    .edit-section .section-header { color:var(--accent); background:rgba(66,165,245,0.08); }
+    .edit-group { padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.04); }
+    .edit-group:last-child { border-bottom:none; }
+    .edit-label { font-size:0.75rem; color:var(--text-dim); font-weight:500; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; }
+    .edit-row { display:flex; gap:8px; }
+    .edit-input {
+      flex:1;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.85rem;
+      outline:none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .edit-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .btn {
+      padding: 10px 18px;
+      border-radius: var(--radius-sm);
+      border:none;
+      font-family:inherit;
+      font-size:0.8rem;
+      font-weight:600;
+      cursor:pointer;
+      transition: all 0.2s;
+      text-transform:uppercase;
+      letter-spacing:0.5px;
+    }
+    .btn-save {
+      background: linear-gradient(135deg, var(--accent), #1e88e5);
+      color: white;
+    }
+    .btn-save:hover { transform:translateY(-1px); box-shadow:0 4px 16px var(--accent-glow); }
+    .btn-append {
+      background: linear-gradient(135deg, #7c4dff, #651fff);
+      color:white;
+    }
+    .btn-append:hover { transform:translateY(-1px); box-shadow:0 4px 16px rgba(124,77,255,0.3); }
+    .btn:active { transform:translateY(0); }
+    .btn:disabled { opacity:0.4; cursor:not-allowed; transform:none !important; box-shadow:none !important; }
+
+    /* ─── Peer Status ─── */
+    .peers-bar {
+      display:flex; gap:12px; margin-bottom:20px;
+    }
+    .peer-chip {
+      flex:1;
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-sm);
+      padding: 10px 16px;
+      display:flex; align-items:center; gap:8px;
+      font-size:0.8rem; font-weight:500;
+      backdrop-filter: blur(8px);
+      transition: border-color 0.3s, background 0.3s;
+    }
+    .peer-dot {
+      width:8px; height:8px; border-radius:50%;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .peer-chip.online .peer-dot { background:var(--success); box-shadow:0 0 8px var(--success); }
+    .peer-chip.offline .peer-dot { background:var(--danger); box-shadow:0 0 8px var(--danger); }
+    .peer-chip.unknown .peer-dot { background:var(--text-muted); }
+    .peer-chip.online { border-color:rgba(102,187,106,0.2); }
+    .peer-chip.offline { border-color:rgba(239,83,80,0.2); background:rgba(239,83,80,0.05); }
+
+    /* ─── Toast ─── */
+    .toast-container { position:fixed; top:20px; right:20px; z-index:1000; display:flex; flex-direction:column; gap:8px; }
+    .toast {
+      background:rgba(20,25,40,0.95);
+      border:1px solid var(--glass-border);
+      border-radius: var(--radius-sm);
+      padding:12px 18px;
+      font-size:0.8rem;
+      backdrop-filter:blur(12px);
+      animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards;
+      max-width:340px;
+    }
+    .toast.success { border-color:rgba(102,187,106,0.3); }
+    .toast.error { border-color:rgba(239,83,80,0.3); }
+    .toast-title { font-weight:600; margin-bottom:2px; }
+    .toast-body { color:var(--text-dim); font-size:0.75rem; }
+    @keyframes toastIn { from { opacity:0; transform:translateX(30px); } to { opacity:1; transform:translateX(0); } }
+    @keyframes toastOut { from { opacity:1; } to { opacity:0; transform:translateY(-10px); } }
+
+    /* ─── Connection Badge ─── */
+    .conn-badge {
+      position:fixed; bottom:16px; right:16px;
+      padding:6px 14px; border-radius:20px;
+      font-size:0.7rem; font-weight:600; letter-spacing:0.5px;
+      z-index:100; backdrop-filter:blur(8px);
+    }
+    .conn-badge.connected { background:rgba(102,187,106,0.15); color:var(--success); border:1px solid rgba(102,187,106,0.2); }
+    .conn-badge.disconnected { background:rgba(239,83,80,0.15); color:var(--danger); border:1px solid rgba(239,83,80,0.2); }
+
+    /* ─── Responsive ─── */
+    @media (max-width:600px) {
+      .container { padding:12px; }
+      .header { flex-direction:column; gap:12px; text-align:center; }
+      .header-right { text-align:center; }
+      .peers-bar { flex-direction:column; }
+      .edit-row { flex-direction:column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header" id="header">
+      <div class="header-left">
+        <div class="node-icon" id="nodeIcon">🏥</div>
+        <div>
+          <div class="node-name" id="nodeName">NODE</div>
+          <div class="node-role" id="nodeRole">Loading...</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="ts-label">Lamport Clock</div>
+        <div class="ts-value" id="tsValue">0</div>
+        <div class="lock-indicator unlocked" id="lockIndicator">🔓 UNLOCKED</div>
+      </div>
+    </div>
+
+    <!-- Patient Info -->
+    <div class="patient-bar">
+      <div class="patient-name" id="patientName">Loading...</div>
+      <div class="patient-details" id="patientDetails"></div>
+      <div class="patient-diagnosis" id="patientDiagnosis"></div>
+    </div>
+
+    <!-- Peer Status -->
+    <div class="peers-bar" id="peersBar"></div>
+
+    <!-- Editable Fields -->
+    <div class="section edit-section" id="editSection">
+      <div class="section-header">
+        <span>✏️ &nbsp;Your Fields</span>
+        <span class="badge" style="background:rgba(66,165,245,0.15);color:var(--icu-color);">EDITABLE</span>
+      </div>
+      <div class="section-body" id="editFields">
+        <!-- Dynamically populated -->
+      </div>
+    </div>
+
+    <!-- Full Report: ICU -->
+    <div class="section icu" id="sectionICU">
+      <div class="section-header">
+        <span>🏥 &nbsp;ICU Findings</span>
+        <span class="badge">VITALS</span>
+      </div>
+      <div class="section-body">
+        <div class="field-row" id="row-icu.bp"><span class="field-label">Blood Pressure</span><span class="field-value" id="val-icu.bp">—</span></div>
+        <div class="field-row" id="row-icu.oxygen_saturation"><span class="field-label">Oxygen Saturation</span><span class="field-value" id="val-icu.oxygen_saturation">—</span></div>
+        <div class="field-row" id="row-icu.heart_rate"><span class="field-label">Heart Rate</span><span class="field-value" id="val-icu.heart_rate">—</span></div>
+        <div class="field-row" id="row-icu.treatment"><span class="field-label">Treatment</span><span class="field-value" id="val-icu.treatment">—</span></div>
+        <div class="field-row" id="row-icu.notes"><span class="field-label">ICU Notes</span><span class="field-value" id="val-icu.notes">—</span></div>
+      </div>
+    </div>
+
+    <!-- Full Report: Radiology -->
+    <div class="section rad" id="sectionRAD">
+      <div class="section-header">
+        <span>🔬 &nbsp;Radiology</span>
+        <span class="badge">IMAGING</span>
+      </div>
+      <div class="section-body">
+        <div class="field-row" id="row-radiology.xray"><span class="field-label">X-Ray</span><span class="field-value" id="val-radiology.xray">—</span></div>
+        <div class="field-row" id="row-radiology.echo"><span class="field-label">Echo</span><span class="field-value" id="val-radiology.echo">—</span></div>
+        <div class="field-row" id="row-radiology.notes"><span class="field-label">Radiology Notes</span><span class="field-value" id="val-radiology.notes">—</span></div>
+      </div>
+    </div>
+
+
+  </div>
+
+  <div class="toast-container" id="toasts"></div>
+  <div class="conn-badge disconnected" id="connBadge">⚡ CONNECTING...</div>
+
+  <script>
+    // ═══════════════════════════════════════════════════
+    //  STATE
+    // ═══════════════════════════════════════════════════
+    let config = null;
+    let report = null;
+    let lamportTs = 0;
+    let isLocked = false;
+    let eventSource = null;
+
+    const NODE_THEMES = {
+      ICU: { icon:'🏥', accent:'#42a5f5', label:'ICU Terminal',  glow:'rgba(66,165,245,0.25)' },
+      RAD: { icon:'🔬', accent:'#b388ff', label:'Radiology Terminal', glow:'rgba(179,136,255,0.25)' }
+    };
+
+    const FIELD_LABELS = {
+      'icu.bp': 'Blood Pressure',
+      'icu.oxygen_saturation': 'Oxygen Saturation',
+      'icu.heart_rate': 'Heart Rate',
+      'icu.treatment': 'Treatment',
+      'icu.notes': 'ICU Notes',
+      'radiology.xray': 'X-Ray Findings',
+      'radiology.echo': 'Echo',
+      'radiology.notes': 'Radiology Notes'
+    };
+
+    // ═══════════════════════════════════════════════════
+    //  INIT
+    // ═══════════════════════════════════════════════════
+    async function init() {
+      // 1. Fetch config
+      const cfgRes = await fetch('/api/config');
+      config = await cfgRes.json();
+
+      // 2. Apply theme
+      const theme = NODE_THEMES[config.node_id] || NODE_THEMES.ICU;
+      document.documentElement.style.setProperty('--accent', theme.accent);
+      document.documentElement.style.setProperty('--accent-glow', theme.glow);
+      document.getElementById('nodeIcon').textContent = theme.icon;
+      document.getElementById('nodeName').textContent = theme.label;
+      document.getElementById('nodeRole').textContent = `${config.role.toUpperCase()} — ${config.node_id}`;
+      document.title = `${config.node_id} | Clinical Report`;
+
+      // 3. Build peer chips
+      buildPeerChips();
+
+      // 4. Build editable fields
+      buildEditFields();
+
+      // 5. Fetch initial report
+      const rptRes = await fetch('/api/report');
+      const rptData = await rptRes.json();
+      report = rptData.report;
+      lamportTs = rptData.lamport_ts;
+      isLocked = rptData.locked;
+      renderReport();
+      renderTs();
+      renderLock();
+
+      // 6. Connect SSE
+      connectSSE();
+
+      // 7. Poll status for peer updates
+      setInterval(pollStatus, 3000);
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  BUILD UI
+    // ═══════════════════════════════════════════════════
+    function buildPeerChips() {
+      const bar = document.getElementById('peersBar');
+      bar.innerHTML = '';
+      for (const peer of config.peers) {
+        const chip = document.createElement('div');
+        chip.className = 'peer-chip unknown';
+        chip.id = `peer-${peer.node_id}`;
+        chip.innerHTML = `<span class="peer-dot"></span><span>${peer.node_id}</span>`;
+        bar.appendChild(chip);
+      }
+    }
+
+    function buildEditFields() {
+      const container = document.getElementById('editFields');
+      container.innerHTML = '';
+
+      if (config.owned_fields.length === 0) {
+        container.innerHTML = '<div style="padding:12px 0;color:var(--text-muted);font-size:0.85rem;text-align:center;">🔒 Read-only mode — no editable fields assigned to this node</div>';
+        return;
+      }
+
+      for (const field of config.owned_fields) {
+        const label = FIELD_LABELS[field] || field;
+        const isNotes = field.toLowerCase().includes('notes');
+        const group = document.createElement('div');
+        group.className = 'edit-group';
+
+        group.innerHTML = `
+          <div class="edit-label">${label}</div>
+          <div class="edit-row">
+            <input type="text" class="edit-input" id="input-${field}"
+                   placeholder="Enter ${label.toLowerCase()}..." />
+            ${isNotes
+              ? `<button class="btn btn-append" onclick="submitEdit('append','${field}')">Append</button>`
+              : `<button class="btn btn-save" onclick="submitEdit('update','${field}')">Save</button>`
+            }
+          </div>`;
+        container.appendChild(group);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  RENDER
+    // ═══════════════════════════════════════════════════
+    function getField(obj, path) {
+      const keys = path.split('.');
+      let cur = obj;
+      for (const k of keys) {
+        if (!cur || typeof cur !== 'object') return null;
+        cur = cur[k];
+      }
+      return cur;
+    }
+
+    function renderReport(highlightField) {
+      if (!report) return;
+
+      // Patient info
+      document.getElementById('patientName').textContent = `${report.patient_name} — ${report.age}M`;
+      document.getElementById('patientDetails').textContent = `Admitted: ${report.admission_date}`;
+      document.getElementById('patientDiagnosis').textContent = report.diagnosis;
+
+      // All field values
+      const allFields = [
+        'icu.bp','icu.oxygen_saturation','icu.heart_rate','icu.treatment','icu.notes',
+        'radiology.xray','radiology.echo','radiology.notes'
+      ];
+
+      for (const f of allFields) {
+        const el = document.getElementById(`val-${f}`);
+        if (!el) continue;
+        const val = getField(report, f);
+        if (val && val.trim && val.trim()) {
+          el.textContent = val;
+          el.classList.remove('empty');
+        } else {
+          el.textContent = val || '—';
+          el.classList.toggle('empty', !val || !val.trim || !val.trim());
+        }
+
+        // Highlight animation
+        const row = document.getElementById(`row-${f}`);
+        if (row && f === highlightField) {
+          row.classList.add('highlight');
+          setTimeout(() => row.classList.remove('highlight'), 1500);
+        }
+      }
+    }
+
+    function renderTs() {
+      document.getElementById('tsValue').textContent = lamportTs;
+    }
+
+    function renderLock() {
+      const el = document.getElementById('lockIndicator');
+      if (isLocked) {
+        el.textContent = '🔒 LOCKED';
+        el.className = 'lock-indicator locked';
+      } else {
+        el.textContent = '🔓 UNLOCKED';
+        el.className = 'lock-indicator unlocked';
+      }
+      // Disable all buttons when locked
+      document.querySelectorAll('.btn').forEach(b => b.disabled = isLocked);
+    }
+
+    function renderPeerStatus(peerId, status) {
+      const chip = document.getElementById(`peer-${peerId}`);
+      if (!chip) return;
+      chip.className = `peer-chip ${status.toLowerCase()}`;
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  SSE — Real-Time Updates
+    // ═══════════════════════════════════════════════════
+    function connectSSE() {
+      if (eventSource) eventSource.close();
+      eventSource = new EventSource('/api/events');
+
+      eventSource.addEventListener('initial_state', (e) => {
+        const data = JSON.parse(e.data);
+        report = data.report;
+        lamportTs = data.ts;
+        isLocked = data.locked;
+        renderReport();
+        renderTs();
+        renderLock();
+        if (data.peers) {
+          for (const [pid, st] of Object.entries(data.peers)) {
+            renderPeerStatus(pid, st);
+          }
+        }
+        setBadge(true);
+      });
+
+      eventSource.addEventListener('report_update', (e) => {
+        const data = JSON.parse(e.data);
+        report = data.report;
+        lamportTs = data.ts;
+        renderReport(data.field);
+        renderTs();
+        if (data.editor !== config.node_id) {
+          showToast('success', `Updated by ${data.editor}`, `${data.field} → "${truncate(data.value, 40)}"`);
+        }
+      });
+
+      eventSource.addEventListener('state_recovered', (e) => {
+        const data = JSON.parse(e.data);
+        report = data.report;
+        lamportTs = data.ts;
+        renderReport();
+        renderTs();
+        showToast('success', 'State Recovered', `Synced from ${data.from_node} (TS=${data.ts})`);
+      });
+
+      eventSource.addEventListener('peer_status', (e) => {
+        const data = JSON.parse(e.data);
+        renderPeerStatus(data.peer_id, data.status);
+        const icon = data.status === 'ONLINE' ? '✅' : '⚠️';
+        showToast(data.status === 'ONLINE' ? 'success' : 'error',
+                  `${icon} ${data.peer_id}`, data.status);
+      });
+
+      eventSource.addEventListener('lock_status', (e) => {
+        const data = JSON.parse(e.data);
+        isLocked = data.locked;
+        renderLock();
+        showToast(isLocked ? 'error' : 'success',
+                  isLocked ? '🔒 Document Locked' : '🔓 Document Unlocked',
+                  isLocked ? 'All edits are disabled' : 'Editing is now allowed');
+      });
+
+      eventSource.addEventListener('conflict_test', (e) => {
+        const data = JSON.parse(e.data);
+        report = data.report;
+        renderReport(data.field);
+        showToast('success', '⚡ Conflict Resolved', `Winner: ${data.winner} (field: ${data.field})`);
+      });
+
+      eventSource.onopen = () => setBadge(true);
+      eventSource.onerror = () => {
+        setBadge(false);
+        setTimeout(connectSSE, 3000);
+      };
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  ACTIONS
+    // ═══════════════════════════════════════════════════
+    async function submitEdit(operation, field) {
+      const input = document.getElementById(`input-${field}`);
+      const value = input.value.trim();
+      if (!value) return;
+
+      try {
+        const res = await fetch('/api/edit', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ operation, field, value })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          input.value = '';
+          lamportTs = data.lamport_ts;
+          renderTs();
+          showToast('success', '✅ Saved', `${field} → "${truncate(value, 40)}"`);
+        } else {
+          showToast('error', '❌ Error', data.error);
+        }
+      } catch (err) {
+        showToast('error', '❌ Network Error', err.message);
+      }
+    }
+
+    async function pollStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        lamportTs = data.lamport_ts;
+        renderTs();
+        isLocked = data.locked;
+        renderLock();
+        for (const [pid, st] of Object.entries(data.peers)) {
+          renderPeerStatus(pid, st);
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  HELPERS
+    // ═══════════════════════════════════════════════════
+    function truncate(s, n) { return s.length > n ? s.slice(0, n) + '…' : s; }
+
+    function setBadge(connected) {
+      const b = document.getElementById('connBadge');
+      b.textContent = connected ? '⚡ LIVE' : '⚡ RECONNECTING...';
+      b.className = `conn-badge ${connected ? 'connected' : 'disconnected'}`;
+    }
+
+    function showToast(type, title, body) {
+      const container = document.getElementById('toasts');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.innerHTML = `<div class="toast-title">${title}</div><div class="toast-body">${body}</div>`;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 3200);
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  BOOT
+    // ═══════════════════════════════════════════════════
+    init();
+  </script>
+</body>
+</html>
