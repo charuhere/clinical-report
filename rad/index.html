@@ -78,6 +78,14 @@
     .lock-indicator.locked { background:rgba(239,83,80,0.2); color:var(--danger); }
     .lock-indicator.unlocked { background:rgba(102,187,106,0.15); color:var(--success); }
 
+    /* ─── Leader Badge ─── */
+    .leader-badge {
+      display:inline-block; padding:3px 10px; border-radius:20px; font-size:0.7rem; font-weight:600;
+      margin-top:4px; letter-spacing:0.5px; margin-left: 6px;
+    }
+    .leader-badge.is-leader { background:rgba(255,215,0,0.2); color:#ffd700; }
+    .leader-badge.not-leader { background:rgba(255,255,255,0.06); color:var(--text-muted); }
+
     /* ─── Patient Info ─── */
     .patient-bar {
       background: linear-gradient(135deg, rgba(66,165,245,0.12), rgba(179,136,255,0.08));
@@ -120,7 +128,7 @@
     .section.rad .section-header { color:var(--rad-color); background:rgba(179,136,255,0.06); }
     .section.rad .section-header .badge { background:rgba(179,136,255,0.15); color:var(--rad-color); }
 
-    /* ─── Field Rows (Read-Only) ─── */
+    /* ─── Field Rows ─── */
     .field-row {
       display:flex; justify-content:space-between; align-items:baseline;
       padding: 6px 0;
@@ -137,6 +145,13 @@
       border-radius: 6px;
       padding: 6px 8px;
       margin: 2px -8px;
+    }
+
+    /* ─── 2PC Critical Badge ─── */
+    .critical-badge {
+      font-size:0.6rem; padding:1px 6px; border-radius:3px; font-weight:600;
+      background:rgba(255,167,38,0.15); color:var(--warning); margin-left:6px;
+      vertical-align: middle; letter-spacing:0.5px;
     }
 
     /* ─── Editable Fields ─── */
@@ -211,6 +226,20 @@
     .peer-chip.online { border-color:rgba(102,187,106,0.2); }
     .peer-chip.offline { border-color:rgba(239,83,80,0.2); background:rgba(239,83,80,0.05); }
 
+    /* ─── Checkpoint Bar ─── */
+    .checkpoint-bar {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-sm);
+      padding: 10px 16px;
+      margin-bottom: 20px;
+      display:flex; align-items:center; justify-content:space-between;
+      font-size:0.8rem;
+      backdrop-filter: blur(8px);
+    }
+    .checkpoint-bar .cp-info { color:var(--text-dim); }
+    .checkpoint-bar .cp-count { font-weight:600; color:var(--accent); }
+
     /* ─── Toast ─── */
     .toast-container { position:fixed; top:20px; right:20px; z-index:1000; display:flex; flex-direction:column; gap:8px; }
     .toast {
@@ -225,6 +254,7 @@
     }
     .toast.success { border-color:rgba(102,187,106,0.3); }
     .toast.error { border-color:rgba(239,83,80,0.3); }
+    .toast.warning { border-color:rgba(255,167,38,0.3); }
     .toast-title { font-weight:600; margin-bottom:2px; }
     .toast-body { color:var(--text-dim); font-size:0.75rem; }
     @keyframes toastIn { from { opacity:0; transform:translateX(30px); } to { opacity:1; transform:translateX(0); } }
@@ -240,7 +270,6 @@
     .conn-badge.connected { background:rgba(102,187,106,0.15); color:var(--success); border:1px solid rgba(102,187,106,0.2); }
     .conn-badge.disconnected { background:rgba(239,83,80,0.15); color:var(--danger); border:1px solid rgba(239,83,80,0.2); }
 
-    /* ─── Responsive ─── */
     @media (max-width:600px) {
       .container { padding:12px; }
       .header { flex-direction:column; gap:12px; text-align:center; }
@@ -264,7 +293,10 @@
       <div class="header-right">
         <div class="ts-label">Lamport Clock</div>
         <div class="ts-value" id="tsValue">0</div>
-        <div class="lock-indicator unlocked" id="lockIndicator">🔓 UNLOCKED</div>
+        <div>
+          <span class="lock-indicator unlocked" id="lockIndicator">🔓 UNLOCKED</span>
+          <span class="leader-badge not-leader" id="leaderBadge">👑 —</span>
+        </div>
       </div>
     </div>
 
@@ -278,15 +310,19 @@
     <!-- Peer Status -->
     <div class="peers-bar" id="peersBar"></div>
 
+    <!-- Checkpoint Bar -->
+    <div class="checkpoint-bar" id="checkpointBar">
+      <span class="cp-info">📸 Checkpoints: <span class="cp-count" id="cpCount">0</span></span>
+      <span class="cp-info" id="cpLastSaved" style="font-size:0.7rem;color:var(--text-muted);">none yet</span>
+    </div>
+
     <!-- Editable Fields -->
     <div class="section edit-section" id="editSection">
       <div class="section-header">
         <span>✏️ &nbsp;Your Fields</span>
-        <span class="badge" style="background:rgba(179,136,255,0.15);color:var(--rad-color);">EDITABLE</span>
+        <span class="badge" style="background:rgba(66,165,245,0.15);color:var(--icu-color);">EDITABLE</span>
       </div>
-      <div class="section-body" id="editFields">
-        <!-- Dynamically populated -->
-      </div>
+      <div class="section-body" id="editFields"></div>
     </div>
 
     <!-- Full Report: ICU -->
@@ -316,21 +352,17 @@
         <div class="field-row" id="row-radiology.notes"><span class="field-label">Radiology Notes</span><span class="field-value" id="val-radiology.notes">—</span></div>
       </div>
     </div>
-
-
   </div>
 
   <div class="toast-container" id="toasts"></div>
   <div class="conn-badge disconnected" id="connBadge">⚡ CONNECTING...</div>
 
   <script>
-    // ═══════════════════════════════════════════════════
-    //  STATE
-    // ═══════════════════════════════════════════════════
     let config = null;
     let report = null;
     let lamportTs = 0;
     let isLocked = false;
+    let currentLeader = null;
     let eventSource = null;
 
     const NODE_THEMES = {
@@ -339,25 +371,15 @@
     };
 
     const FIELD_LABELS = {
-      'icu.bp': 'Blood Pressure',
-      'icu.oxygen_saturation': 'Oxygen Saturation',
-      'icu.heart_rate': 'Heart Rate',
-      'icu.treatment': 'Treatment',
-      'icu.notes': 'ICU Notes',
-      'radiology.xray': 'X-Ray Findings',
-      'radiology.echo': 'Echo',
-      'radiology.notes': 'Radiology Notes'
+      'icu.bp': 'Blood Pressure', 'icu.oxygen_saturation': 'Oxygen Saturation',
+      'icu.heart_rate': 'Heart Rate', 'icu.treatment': 'Treatment', 'icu.notes': 'ICU Notes',
+      'radiology.xray': 'X-Ray Findings', 'radiology.echo': 'Echo', 'radiology.notes': 'Radiology Notes'
     };
 
-    // ═══════════════════════════════════════════════════
-    //  INIT
-    // ═══════════════════════════════════════════════════
     async function init() {
-      // 1. Fetch config
       const cfgRes = await fetch('/api/config');
       config = await cfgRes.json();
 
-      // 2. Apply theme
       const theme = NODE_THEMES[config.node_id] || NODE_THEMES.ICU;
       document.documentElement.style.setProperty('--accent', theme.accent);
       document.documentElement.style.setProperty('--accent-glow', theme.glow);
@@ -366,32 +388,24 @@
       document.getElementById('nodeRole').textContent = `${config.role.toUpperCase()} — ${config.node_id}`;
       document.title = `${config.node_id} | Clinical Report`;
 
-      // 3. Build peer chips
       buildPeerChips();
-
-      // 4. Build editable fields
       buildEditFields();
 
-      // 5. Fetch initial report
       const rptRes = await fetch('/api/report');
       const rptData = await rptRes.json();
       report = rptData.report;
       lamportTs = rptData.lamport_ts;
       isLocked = rptData.locked;
+      currentLeader = rptData.leader;
       renderReport();
       renderTs();
       renderLock();
+      renderLeader();
 
-      // 6. Connect SSE
       connectSSE();
-
-      // 7. Poll status for peer updates
       setInterval(pollStatus, 3000);
     }
 
-    // ═══════════════════════════════════════════════════
-    //  BUILD UI
-    // ═══════════════════════════════════════════════════
     function buildPeerChips() {
       const bar = document.getElementById('peersBar');
       bar.innerHTML = '';
@@ -399,7 +413,7 @@
         const chip = document.createElement('div');
         chip.className = 'peer-chip unknown';
         chip.id = `peer-${peer.node_id}`;
-        chip.innerHTML = `<span class="peer-dot"></span><span>${peer.node_id}</span>`;
+        chip.innerHTML = `<span class="peer-dot"></span><span>${peer.node_id}</span><span class="peer-leader-tag" id="peer-leader-${peer.node_id}" style="display:none;font-size:0.65rem;color:#ffd700;margin-left:auto;">👑 LEADER</span>`;
         bar.appendChild(chip);
       }
     }
@@ -407,23 +421,24 @@
     function buildEditFields() {
       const container = document.getElementById('editFields');
       container.innerHTML = '';
+      const criticalFields = config.critical_fields || [];
 
       if (config.owned_fields.length === 0) {
-        container.innerHTML = '<div style="padding:12px 0;color:var(--text-muted);font-size:0.85rem;text-align:center;">🔒 Read-only mode — no editable fields assigned to this node</div>';
+        container.innerHTML = '<div style="padding:12px 0;color:var(--text-muted);font-size:0.85rem;text-align:center;">🔒 Read-only mode</div>';
         return;
       }
 
       for (const field of config.owned_fields) {
         const label = FIELD_LABELS[field] || field;
+        const isCritical = criticalFields.includes(field);
         const isNotes = field.toLowerCase().includes('notes');
         const group = document.createElement('div');
         group.className = 'edit-group';
-
+        const critBadge = isCritical ? '<span class="critical-badge">⚛️ 2PC</span>' : '';
         group.innerHTML = `
-          <div class="edit-label">${label}</div>
+          <div class="edit-label">${label}${critBadge}</div>
           <div class="edit-row">
-            <input type="text" class="edit-input" id="input-${field}"
-                   placeholder="Enter ${label.toLowerCase()}..." />
+            <input type="text" class="edit-input" id="input-${field}" placeholder="Enter ${label.toLowerCase()}..." />
             ${isNotes
               ? `<button class="btn btn-append" onclick="submitEdit('append','${field}')">Append</button>`
               : `<button class="btn btn-save" onclick="submitEdit('update','${field}')">Save</button>`
@@ -433,9 +448,6 @@
       }
     }
 
-    // ═══════════════════════════════════════════════════
-    //  RENDER
-    // ═══════════════════════════════════════════════════
     function getField(obj, path) {
       const keys = path.split('.');
       let cur = obj;
@@ -448,18 +460,11 @@
 
     function renderReport(highlightField) {
       if (!report) return;
-
-      // Patient info
       document.getElementById('patientName').textContent = `${report.patient_name} — ${report.age}M`;
       document.getElementById('patientDetails').textContent = `Admitted: ${report.admission_date}`;
       document.getElementById('patientDiagnosis').textContent = report.diagnosis;
 
-      // All field values
-      const allFields = [
-        'icu.bp','icu.oxygen_saturation','icu.heart_rate','icu.treatment','icu.notes',
-        'radiology.xray','radiology.echo','radiology.notes'
-      ];
-
+      const allFields = ['icu.bp','icu.oxygen_saturation','icu.heart_rate','icu.treatment','icu.notes','radiology.xray','radiology.echo','radiology.notes'];
       for (const f of allFields) {
         const el = document.getElementById(`val-${f}`);
         if (!el) continue;
@@ -471,8 +476,6 @@
           el.textContent = val || '—';
           el.classList.toggle('empty', !val || !val.trim || !val.trim());
         }
-
-        // Highlight animation
         const row = document.getElementById(`row-${f}`);
         if (row && f === highlightField) {
           row.classList.add('highlight');
@@ -481,21 +484,32 @@
       }
     }
 
-    function renderTs() {
-      document.getElementById('tsValue').textContent = lamportTs;
-    }
+    function renderTs() { document.getElementById('tsValue').textContent = lamportTs; }
 
     function renderLock() {
       const el = document.getElementById('lockIndicator');
       if (isLocked) {
-        el.textContent = '🔒 LOCKED';
-        el.className = 'lock-indicator locked';
+        el.textContent = '🔒 LOCKED'; el.className = 'lock-indicator locked';
       } else {
-        el.textContent = '🔓 UNLOCKED';
-        el.className = 'lock-indicator unlocked';
+        el.textContent = '🔓 UNLOCKED'; el.className = 'lock-indicator unlocked';
       }
-      // Disable all buttons when locked
       document.querySelectorAll('.btn').forEach(b => b.disabled = isLocked);
+    }
+
+    function renderLeader() {
+      const badge = document.getElementById('leaderBadge');
+      if (currentLeader === config.node_id) {
+        badge.textContent = '👑 LEADER'; badge.className = 'leader-badge is-leader';
+      } else if (currentLeader) {
+        badge.textContent = `👑 ${currentLeader}`; badge.className = 'leader-badge not-leader';
+      } else {
+        badge.textContent = '👑 —'; badge.className = 'leader-badge not-leader';
+      }
+      // Update peer chips
+      for (const peer of (config.peers || [])) {
+        const tag = document.getElementById(`peer-leader-${peer.node_id}`);
+        if (tag) tag.style.display = (currentLeader === peer.node_id) ? 'inline' : 'none';
+      }
     }
 
     function renderPeerStatus(peerId, status) {
@@ -504,46 +518,35 @@
       chip.className = `peer-chip ${status.toLowerCase()}`;
     }
 
-    // ═══════════════════════════════════════════════════
-    //  SSE — Real-Time Updates
-    // ═══════════════════════════════════════════════════
     function connectSSE() {
       if (eventSource) eventSource.close();
       eventSource = new EventSource('/api/events');
 
       eventSource.addEventListener('initial_state', (e) => {
         const data = JSON.parse(e.data);
-        report = data.report;
-        lamportTs = data.ts;
-        isLocked = data.locked;
-        renderReport();
-        renderTs();
-        renderLock();
+        report = data.report; lamportTs = data.ts; isLocked = data.locked;
+        currentLeader = data.leader;
+        renderReport(); renderTs(); renderLock(); renderLeader();
         if (data.peers) {
-          for (const [pid, st] of Object.entries(data.peers)) {
-            renderPeerStatus(pid, st);
-          }
+          for (const [pid, st] of Object.entries(data.peers)) renderPeerStatus(pid, st);
         }
         setBadge(true);
       });
 
       eventSource.addEventListener('report_update', (e) => {
         const data = JSON.parse(e.data);
-        report = data.report;
-        lamportTs = data.ts;
-        renderReport(data.field);
-        renderTs();
+        report = data.report; lamportTs = data.ts;
+        renderReport(data.field); renderTs();
         if (data.editor !== config.node_id) {
-          showToast('success', `Updated by ${data.editor}`, `${data.field} → "${truncate(data.value, 40)}"`);
+          const prefix = data.two_pc ? '⚛️ [2PC] ' : '';
+          showToast('success', `${prefix}Updated by ${data.editor}`, `${data.field} → "${truncate(data.value, 40)}"`);
         }
       });
 
       eventSource.addEventListener('state_recovered', (e) => {
         const data = JSON.parse(e.data);
-        report = data.report;
-        lamportTs = data.ts;
-        renderReport();
-        renderTs();
+        report = data.report; lamportTs = data.ts;
+        renderReport(); renderTs();
         showToast('success', 'State Recovered', `Synced from ${data.from_node} (TS=${data.ts})`);
       });
 
@@ -551,14 +554,12 @@
         const data = JSON.parse(e.data);
         renderPeerStatus(data.peer_id, data.status);
         const icon = data.status === 'ONLINE' ? '✅' : '⚠️';
-        showToast(data.status === 'ONLINE' ? 'success' : 'error',
-                  `${icon} ${data.peer_id}`, data.status);
+        showToast(data.status === 'ONLINE' ? 'success' : 'error', `${icon} ${data.peer_id}`, data.status);
       });
 
       eventSource.addEventListener('lock_status', (e) => {
         const data = JSON.parse(e.data);
-        isLocked = data.locked;
-        renderLock();
+        isLocked = data.locked; renderLock();
         showToast(isLocked ? 'error' : 'success',
                   isLocked ? '🔒 Document Locked' : '🔓 Document Unlocked',
                   isLocked ? 'All edits are disabled' : 'Editing is now allowed');
@@ -566,37 +567,54 @@
 
       eventSource.addEventListener('conflict_test', (e) => {
         const data = JSON.parse(e.data);
-        report = data.report;
-        renderReport(data.field);
+        report = data.report; renderReport(data.field);
         showToast('success', '⚡ Conflict Resolved', `Winner: ${data.winner} (field: ${data.field})`);
       });
 
+      eventSource.addEventListener('leader_elected', (e) => {
+        const data = JSON.parse(e.data);
+        currentLeader = data.leader_id; renderLeader();
+        showToast('warning', '👑 Leader Elected', `${data.leader_id} is now the leader`);
+      });
+
+      eventSource.addEventListener('checkpoint_created', (e) => {
+        const data = JSON.parse(e.data);
+        document.getElementById('cpCount').textContent = data.id;
+        document.getElementById('cpLastSaved').textContent = `Last: ${data.timestamp}`;
+        showToast('success', '📸 Checkpoint Saved', `Checkpoint #${data.id} (TS=${data.lamport_ts})`);
+      });
+
+      eventSource.addEventListener('rollback', (e) => {
+        const data = JSON.parse(e.data);
+        report = data.report; renderReport(); renderTs();
+        showToast('warning', '⏪ Rollback', `Reverted to Checkpoint #${data.checkpoint_id} by ${data.by_node}`);
+      });
+
+      eventSource.addEventListener('two_pc_result', (e) => {
+        const data = JSON.parse(e.data);
+        if (data.result === 'COMMIT') {
+          showToast('success', '⚛️ 2PC Committed', `${data.field} → "${truncate(data.value, 30)}"`);
+        } else {
+          showToast('error', '⚛️ 2PC Aborted', `${data.field} update cancelled — ${data.reason || 'peer disagreement'}`);
+        }
+      });
+
       eventSource.onopen = () => setBadge(true);
-      eventSource.onerror = () => {
-        setBadge(false);
-        setTimeout(connectSSE, 3000);
-      };
+      eventSource.onerror = () => { setBadge(false); setTimeout(connectSSE, 3000); };
     }
 
-    // ═══════════════════════════════════════════════════
-    //  ACTIONS
-    // ═══════════════════════════════════════════════════
     async function submitEdit(operation, field) {
       const input = document.getElementById(`input-${field}`);
       const value = input.value.trim();
       if (!value) return;
-
       try {
         const res = await fetch('/api/edit', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
+          method: 'POST', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ operation, field, value })
         });
         const data = await res.json();
         if (data.ok) {
-          input.value = '';
-          lamportTs = data.lamport_ts;
-          renderTs();
+          input.value = ''; lamportTs = data.lamport_ts; renderTs();
           showToast('success', '✅ Saved', `${field} → "${truncate(value, 40)}"`);
         } else {
           showToast('error', '❌ Error', data.error);
@@ -610,27 +628,20 @@
       try {
         const res = await fetch('/api/status');
         const data = await res.json();
-        lamportTs = data.lamport_ts;
-        renderTs();
-        isLocked = data.locked;
-        renderLock();
-        for (const [pid, st] of Object.entries(data.peers)) {
-          renderPeerStatus(pid, st);
-        }
+        lamportTs = data.lamport_ts; renderTs();
+        isLocked = data.locked; renderLock();
+        currentLeader = data.leader; renderLeader();
+        document.getElementById('cpCount').textContent = data.checkpoint_count || 0;
+        for (const [pid, st] of Object.entries(data.peers)) renderPeerStatus(pid, st);
       } catch (e) { /* ignore */ }
     }
 
-    // ═══════════════════════════════════════════════════
-    //  HELPERS
-    // ═══════════════════════════════════════════════════
     function truncate(s, n) { return s.length > n ? s.slice(0, n) + '…' : s; }
-
     function setBadge(connected) {
       const b = document.getElementById('connBadge');
       b.textContent = connected ? '⚡ LIVE' : '⚡ RECONNECTING...';
       b.className = `conn-badge ${connected ? 'connected' : 'disconnected'}`;
     }
-
     function showToast(type, title, body) {
       const container = document.getElementById('toasts');
       const toast = document.createElement('div');
@@ -640,9 +651,6 @@
       setTimeout(() => toast.remove(), 3200);
     }
 
-    // ═══════════════════════════════════════════════════
-    //  BOOT
-    // ═══════════════════════════════════════════════════
     init();
   </script>
 </body>
