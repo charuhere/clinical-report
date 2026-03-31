@@ -4,7 +4,7 @@
   "admission_date": "28-Mar-2026",
   "diagnosis": "Acute Myocardial Infarction",
   "icu": {
-    "bp": "130/85 mmHg",
+    "bp": "CORRUPTED DATA",
     "oxygen_saturation": "97%",
     "heart_rate": "95 bpm",
     "treatment": "Should be blocked",

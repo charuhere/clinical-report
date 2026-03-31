@@ -123,20 +123,6 @@ def sse_broadcast(event_type, data):
             _sse_clients.remove(q)
 
 
-# ═══════════════════════════════════════════════════════════════
-#  DOCUMENT LOCK
-# ═══════════════════════════════════════════════════════════════
-_doc_locked     = False
-_doc_lock_mutex = threading.Lock()
-
-def is_doc_locked():
-    with _doc_lock_mutex:
-        return _doc_locked
-
-def set_doc_locked(val):
-    global _doc_locked
-    with _doc_lock_mutex:
-        _doc_locked = val
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -456,8 +442,6 @@ def dispatch_packet(packet, config, clock, report, report_lock):
     node_id = config["node_id"]
 
     if ptype == "EDIT":
-        if is_doc_locked():
-            return
         clock.update(packet["vector_ts"])
         enqueue_edit(packet)
 
@@ -491,17 +475,7 @@ def dispatch_packet(packet, config, clock, report, report_lock):
                 print(f"\n  ✅ State recovered from {packet['node_id']} (TS={received_ts})")
                 print(f"[{config['node_id']} | TS={clock.value()}]> ", end="", flush=True)
 
-    elif ptype == "LOCK":
-        set_doc_locked(True)
-        sse_broadcast("lock_status", {"locked": True})
-        print(f"\n  🔒 Document LOCKED by ADMIN")
-        print(f"[{config['node_id']} | TS={clock.value()}]> ", end="", flush=True)
 
-    elif ptype == "UNLOCK":
-        set_doc_locked(False)
-        sse_broadcast("lock_status", {"locked": False})
-        print(f"\n  🔓 Document UNLOCKED by ADMIN")
-        print(f"[{config['node_id']} | TS={clock.value()}]> ", end="", flush=True)
 
     # ── FEATURE 7: Leader Election ──
     elif ptype == "ELECTION":
@@ -654,10 +628,7 @@ def do_edit(config, clock, report, report_lock, operation, field, value):
     node_id = config["node_id"]
     owned   = config["owned_fields"]
 
-    if is_doc_locked():
-        msg = "🔒 Document is LOCKED. No edits allowed."
-        print(f"\n  ❌  {msg}")
-        return False, msg
+
 
     if field not in owned:
         msg = f"ACCESS DENIED — '{field}' is not owned by {node_id}."
@@ -765,26 +736,12 @@ def print_banner(config):
     icons = {"ICU": "🏥", "RAD": "🔬"}
     role_icon = "👨‍⚕️" if config["role"] == "doctor" else "🩺"
     node_icon = icons.get(config["node_id"], "📋")
-    crit = config.get("critical_fields", [])
     print("\n" + "═"*W)
     print(f"   {node_icon}  DISTRIBUTED CLINICAL REPORT SYSTEM")
     print(f"   {role_icon}  Node: {config['node_id']}   Role: {config['role'].upper()}")
     print("═"*W)
-    print("   Commands:")
-    print("     view                        — show full patient report")
-    print("     update <field> <value>      — update a field")
-    print("     append <field> <text>       — append text to a field")
-    print("     status                      — clock, role, peers, leader")
-    print("     conflict-test               — demo conflict resolution")
-    print("     checkpoints                 — list saved checkpoints")
-    print("     rollback                    — revert to last checkpoint")
-    print("     election                    — trigger leader election")
-    print("     exit                        — shutdown this node")
-    print("─"*W)
-    print(f"   Your owned fields:")
-    for f in config["owned_fields"]:
-        print(f"     • {f}")
-    print(f"\n   🌐 Web UI: http://localhost:{config['http_port']}")
+    print(f"   🌐 Web UI: http://localhost:{config['http_port']}")
+    print("   🖥️  Type 'help' for terminal commands.")
     print("═"*W + "\n")
 
 def print_report(report, node_id, ts):
@@ -851,7 +808,6 @@ def api_config():
     return jsonify({
         "node_id": _config["node_id"], "role": _config["role"],
         "owned_fields": _config["owned_fields"],
-        "critical_fields": _config.get("critical_fields", []),
         "peers": [{"node_id": p["node_id"]} for p in _config["peers"]]
     })
 
@@ -860,7 +816,7 @@ def api_report():
     with _report_lock:
         return jsonify({
             "report": json.loads(json.dumps(_report)),
-            "vector_ts": _clock.value(), "locked": is_doc_locked(),
+            "vector_ts": _clock.value(),
             "leader": _current_leader
         })
 
@@ -983,6 +939,9 @@ def terminal_loop(config, clock, report, report_lock):
         elif command == "checkpoints":
             list_checkpoints()
 
+        elif command == "save-checkpoint":
+            create_checkpoint(report, report_lock, clock)
+
         elif command == "rollback":
             do_rollback(config, clock, report, report_lock)
 
@@ -992,6 +951,20 @@ def terminal_loop(config, clock, report, report_lock):
         elif command == "exit":
             print(f"\n  [{node_id}] Shutting down gracefully...")
             sys.exit(0)
+
+        elif command == "help":
+            print("\n  " + "─" * 54)
+            print("   AVAILABLE COMMANDS")
+            print("  " + "─" * 54)
+            print("   view            — Display the current patient report")
+            print("   update <f> <v>  — Mutate a specific field (e.g., radiology.xray)")
+            print("   status          — View node, vector clock, and peers")
+            print("   conflict-test   — Simulate concurrent Vector Clock edits")
+            print("   save-checkpoint — Save system state to a secure Checkpoint")
+            print("   rollback        — Revert the entire network to last Checkpoint")
+            print("   election        — Manually trigger Bully Leader Election")
+            print("   exit            — Disconnect and shutdown node")
+            print("  " + "─" * 54 + "\n")
 
         else:
             print(f"  Unknown command: '{command}'")
@@ -1032,9 +1005,7 @@ def main():
     log.setLevel(logging.ERROR)
     threading.Thread(target=lambda: app.run(host="0.0.0.0", port=config["http_port"], threaded=True), daemon=True).start()
 
-    print(f"  ✅  [{config['node_id']}] Node is ONLINE")
-    print(f"      TCP: {config['tcp_port']}  |  UDP: {config['udp_port']}  |  HTTP: {config['http_port']}")
-    print(f"  🌐  Open http://localhost:{config['http_port']} in browser")
+    print(f"  ✅  [{config['node_id']}] Node is ONLINE (TCP: {config['tcp_port']} | UDP: {config['udp_port']})")
     print(f"  ⏳  Waiting for peers...\n")
 
     time.sleep(1)

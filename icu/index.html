@@ -287,7 +287,6 @@
         <div class="ts-label">Vector Clock</div>
         <div class="ts-value" id="tsValue">0</div>
         <div>
-          <span class="lock-indicator unlocked" id="lockIndicator">🔓 UNLOCKED</span>
           <span class="leader-badge not-leader" id="leaderBadge">👑 —</span>
         </div>
       </div>
@@ -478,16 +477,6 @@
       document.getElementById('tsValue').textContent = dict; 
     }
 
-    function renderLock() {
-      const el = document.getElementById('lockIndicator');
-      if (isLocked) {
-        el.textContent = '🔒 LOCKED'; el.className = 'lock-indicator locked';
-      } else {
-        el.textContent = '🔓 UNLOCKED'; el.className = 'lock-indicator unlocked';
-      }
-      document.querySelectorAll('.btn').forEach(b => b.disabled = isLocked);
-    }
-
     function renderLeader() {
       const badge = document.getElementById('leaderBadge');
       if (currentLeader === config.node_id) {
@@ -518,7 +507,7 @@
         const data = JSON.parse(e.data);
         report = data.report; vectorTs = data.ts; isLocked = data.locked;
         currentLeader = data.leader;
-        renderReport(); renderTs(); renderLock(); renderLeader();
+        renderReport(); renderTs(); renderLeader();
         if (data.peers) {
           for (const [pid, st] of Object.entries(data.peers)) renderPeerStatus(pid, st);
         }
@@ -550,7 +539,7 @@
 
       eventSource.addEventListener('lock_status', (e) => {
         const data = JSON.parse(e.data);
-        isLocked = data.locked; renderLock();
+        isLocked = false;
         showToast(isLocked ? 'error' : 'success',
                   isLocked ? '🔒 Document Locked' : '🔓 Document Unlocked',
                   isLocked ? 'All edits are disabled' : 'Editing is now allowed');
@@ -611,7 +600,7 @@
         const res = await fetch('/api/status');
         const data = await res.json();
         vectorTs = data.vector_ts; renderTs();
-        isLocked = data.locked; renderLock();
+        isLocked = false;
         currentLeader = data.leader; renderLeader();
         document.getElementById('cpCount').textContent = data.checkpoint_count || 0;
         for (const [pid, st] of Object.entries(data.peers)) renderPeerStatus(pid, st);

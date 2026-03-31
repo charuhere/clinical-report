@@ -5,8 +5,7 @@
  * - Express serves static files from public/ on port 4000
  * - WebSocket server for real-time browser updates
  * - UDP listener on port 7000 receives DASHBOARD_UPDATE + HEARTBEAT from nodes
- * - POST /api/lock and /api/unlock send TCP commands to all nodes
- * - Tracks leader election status, checkpoint events, 2PC events
+ * - Tracks leader election status, checkpoint events, rollback events
  */
 
 const express = require('express');
@@ -29,7 +28,6 @@ const NODES = [
 let latestReport = null;
 let nodesStatus = {};
 let auditLog = [];
-let docLocked = false;
 let currentLeader = null;
 let lastHeartbeat = {};  // { nodeId: timestamp }
 
@@ -50,7 +48,6 @@ wss.on('connection', (ws) => {
     report: latestReport,
     nodes_status: nodesStatus,
     audit_log: auditLog,
-    locked: docLocked,
     leader: currentLeader
   };
   ws.send(JSON.stringify(initial));
@@ -147,48 +144,7 @@ setInterval(() => {
   }
 }, 3000);
 
-// ═══════════════════════════════════════════════════════
-//  TCP SEND — for lock/unlock commands to nodes
-// ═══════════════════════════════════════════════════════
-function sendTCPToNode(host, port, packet) {
-  return new Promise((resolve) => {
-    const client = new net.Socket();
-    client.setTimeout(3000);
-    client.connect(port, host, () => {
-      client.write(JSON.stringify(packet));
-      client.end();
-      resolve(true);
-    });
-    client.on('error', () => resolve(false));
-    client.on('timeout', () => { client.destroy(); resolve(false); });
-  });
-}
 
-async function broadcastTCPToNodes(packet) {
-  const results = {};
-  for (const node of NODES) {
-    results[node.id] = await sendTCPToNode(node.host, node.tcpPort, packet);
-  }
-  return results;
-}
-
-// ─── Lock endpoint ───
-app.post('/api/lock', async (req, res) => {
-  docLocked = true;
-  const results = await broadcastTCPToNodes({ type: 'LOCK', node_id: 'ADMIN' });
-  broadcastToWS({ type: 'lock_status', locked: true });
-  console.log('[LOCK] Document locked —', results);
-  res.json({ ok: true, results });
-});
-
-// ─── Unlock endpoint ───
-app.post('/api/unlock', async (req, res) => {
-  docLocked = false;
-  const results = await broadcastTCPToNodes({ type: 'UNLOCK', node_id: 'ADMIN' });
-  broadcastToWS({ type: 'lock_status', locked: false });
-  console.log('[UNLOCK] Document unlocked —', results);
-  res.json({ ok: true, results });
-});
 
 // ─── Status endpoint ───
 app.get('/api/status', (req, res) => {
@@ -196,7 +152,6 @@ app.get('/api/status', (req, res) => {
     report: latestReport,
     nodes_status: nodesStatus,
     audit_log: auditLog,
-    locked: docLocked,
     leader: currentLeader
   });
 });
