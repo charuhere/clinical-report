@@ -6,6 +6,9 @@
     "radiology.echo",
     "radiology.notes"
   ],
+  "critical_fields": [
+    "radiology.echo"
+  ],
   "tcp_port": 5002,
   "udp_port": 6002,
   "http_port": 8002,

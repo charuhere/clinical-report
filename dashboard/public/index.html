@@ -138,6 +138,12 @@
     .nc-dot.offline { background:var(--danger); box-shadow:0 0 10px var(--danger); animation:pulse 1.5s infinite; }
     .nc-dot.unknown { background:var(--text-muted); }
     .nc-role { font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; }
+    .nc-leader {
+      font-size:0.65rem; font-weight:600; color:#ffd700; margin-top:4px;
+      padding:2px 8px; border-radius:10px; background:rgba(255,215,0,0.12);
+      display:inline-block;
+    }
+    .nc-leader.hidden { display:none; }
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
 
     /* ─── Clinical Section ─── */
@@ -259,6 +265,7 @@
           <span class="nc-dot unknown" id="dot-ICU"></span>
         </div>
         <div class="nc-role">Doctor</div>
+        <div class="nc-leader hidden" id="leader-ICU">👑 LEADER</div>
       </div>
       <div class="node-card rad" id="card-RAD">
         <div class="nc-top">
@@ -266,6 +273,7 @@
           <span class="nc-dot unknown" id="dot-RAD"></span>
         </div>
         <div class="nc-role">Doctor</div>
+        <div class="nc-leader hidden" id="leader-RAD">👑 LEADER</div>
       </div>
     </div>
 
@@ -330,6 +338,7 @@
     let report = null;
     let nodesStatus = {};
     let auditLog = [];
+    let currentLeader = null;
     let docLocked = false;
 
     const ALL_FIELDS = [
@@ -380,10 +389,18 @@
           docLocked = data.locked;
           renderLock();
         }
+        if (data.leader) {
+          currentLeader = data.leader;
+          renderLeader();
+        }
       }
       else if (data.type === 'lock_status') {
         docLocked = data.locked;
         renderLock();
+      }
+      else if (data.type === 'node_status_update') {
+        if (data.nodes_status) { nodesStatus = data.nodes_status; renderNodes(); }
+        if (data.leader) { currentLeader = data.leader; renderLeader(); }
       }
     }
 
@@ -445,6 +462,16 @@
           card.classList.toggle('offline', status === 'OFFLINE');
         }
       }
+    }
+
+    function renderLeader() {
+      ['ICU', 'RAD'].forEach(id => {
+        const el = document.getElementById(`leader-${id}`);
+        if (el) {
+          if (currentLeader === id) { el.classList.remove('hidden'); }
+          else { el.classList.add('hidden'); }
+        }
+      });
     }
 
     function renderLock() {

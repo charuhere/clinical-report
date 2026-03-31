@@ -4,14 +4,14 @@
   "admission_date": "28-Mar-2026",
   "diagnosis": "Acute Myocardial Infarction",
   "icu": {
-    "bp": "120/80 mmHg",
-    "oxygen_saturation": "not recorded",
-    "heart_rate": "90 bpm",
-    "treatment": "not started",
-    "notes": ""
+    "bp": "130/85 mmHg",
+    "oxygen_saturation": "97%",
+    "heart_rate": "95 bpm",
+    "treatment": "Should be blocked",
+    "notes": "Patient stable"
   },
   "radiology": {
-    "xray": "Entry by RAD at TS=7",
+    "xray": "Chest clear",
     "echo": "pending",
     "notes": ""
   },
