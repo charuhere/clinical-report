@@ -6,9 +6,8 @@ node.py — Full Implementation with 9 Distributed Computing Features
 Features:
   1. P2P Sync (UDP/TCP)         2. Decentralized Access Control
   3. Heartbeat Failure Detection 4. State Recovery (Crash & Rejoin)
-  5. Distributed Lock (TCP)      6. Lamport Clock Conflict Resolution
+  5. Distributed Lock (TCP)      6. Vector Clock Conflict Resolution
   7. Leader Election (Bully)     8. Checkpointing & Rollback
-  9. Two-Phase Commit (2PC)
 
 Run from inside a node folder:
     cd icu/ && python node.py
@@ -30,26 +29,30 @@ from flask import Flask, Response, request, jsonify
 
 
 # ═══════════════════════════════════════════════════════════════
-#  LAMPORT CLOCK
+#  VECTOR CLOCK
 # ═══════════════════════════════════════════════════════════════
-class LamportClock:
-    def __init__(self):
-        self._time = 0
+class VectorClock:
+    def __init__(self, node_id):
+        self._node_id = node_id
+        self._vector = {node_id: 0}
         self._lock = threading.Lock()
 
     def tick(self):
         with self._lock:
-            self._time += 1
-            return self._time
+            self._vector[self._node_id] = self._vector.get(self._node_id, 0) + 1
+            return dict(self._vector)
 
     def update(self, received_ts):
         with self._lock:
-            self._time = max(self._time, received_ts) + 1
-            return self._time
+            self._vector[self._node_id] = self._vector.get(self._node_id, 0) + 1
+            if isinstance(received_ts, dict):
+                for k, v in received_ts.items():
+                    self._vector[k] = max(self._vector.get(k, 0), v)
+            return dict(self._vector)
 
     def value(self):
         with self._lock:
-            return self._time
+            return dict(self._vector)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -168,14 +171,6 @@ MAX_CHECKPOINTS   = 10
 
 
 # ═══════════════════════════════════════════════════════════════
-#  [FEATURE 9]  TWO-PHASE COMMIT STATE
-# ═══════════════════════════════════════════════════════════════
-_2pc_votes = {}
-_2pc_lock  = threading.Lock()
-TWO_PC_TIMEOUT = 3
-
-
-# ═══════════════════════════════════════════════════════════════
 #  IN-MEMORY AUDIT LOG
 # ═══════════════════════════════════════════════════════════════
 _audit_entries = []
@@ -183,7 +178,7 @@ _audit_lock    = threading.Lock()
 
 def add_audit_entry(node_id, ts, operation, field, value):
     entry = {
-        "node_id": node_id, "lamport_ts": ts, "operation": operation,
+        "node_id": node_id, "vector_ts": ts, "operation": operation,
         "field": field, "value": value,
         "time": datetime.now().strftime("%H:%M:%S")
     }
@@ -209,16 +204,16 @@ def edit_processor(config, report, report_lock, clock):
         with _edit_queue_lock:
             if not _edit_queue:
                 continue
-            batch = sorted(_edit_queue, key=lambda e: (e["lamport_ts"], e["node_id"]))
+            batch = sorted(_edit_queue, key=lambda e: (sum(e["vector_ts"].values()) if isinstance(e["vector_ts"], dict) else 0, e["node_id"]))
             _edit_queue.clear()
 
         for edit in batch:
             with report_lock:
                 apply_edit(report, edit["operation"], edit["field"], edit["value"])
                 save_report(report)
-            write_audit(edit["node_id"], edit["lamport_ts"],
+            write_audit(edit["node_id"], edit["vector_ts"],
                         edit["operation"], edit["field"], edit["value"])
-            add_audit_entry(edit["node_id"], edit["lamport_ts"],
+            add_audit_entry(edit["node_id"], edit["vector_ts"],
                             edit["operation"], edit["field"], edit["value"])
 
         with report_lock:
@@ -230,17 +225,17 @@ def edit_processor(config, report, report_lock, clock):
             sse_broadcast("report_update", {
                 "report": report_copy, "editor": e["node_id"],
                 "field": e["field"], "value": e["value"],
-                "ts": e["lamport_ts"], "conflict": False
+                "ts": e["vector_ts"], "conflict": False
             })
             print(f"\n{'─'*W}")
-            print(f"  📋 REPORT UPDATED  [from {e['node_id']} | TS={e['lamport_ts']}]")
+            print(f"  📋 REPORT UPDATED  [from {e['node_id']} | TS={e['vector_ts']}]")
             print(f"     {e['field']}  →  \"{e['value']}\"")
             print(f"{'─'*W}")
         else:
             sse_broadcast("report_update", {
                 "report": report_copy, "editor": batch[-1]["node_id"],
                 "field": batch[-1]["field"], "value": batch[-1]["value"],
-                "ts": batch[-1]["lamport_ts"], "conflict": True,
+                "ts": batch[-1]["vector_ts"], "conflict": True,
                 "batch_size": len(batch)
             })
             print(f"\n{'═'*W}")
@@ -248,7 +243,7 @@ def edit_processor(config, report, report_lock, clock):
             print(f"{'─'*W}")
             for i, e in enumerate(batch):
                 tag = " ← applied FIRST (wins)" if i == 0 else " ← applied after"
-                print(f"  [{e['node_id']} | TS={e['lamport_ts']}]  {e['field']} → \"{e['value']}\"{tag}")
+                print(f"  [{e['node_id']} | TS={e['vector_ts']}]  {e['field']} → \"{e['value']}\"{tag}")
             print(f"{'═'*W}")
 
         increment_edit_count(report, report_lock, clock, len(batch))
@@ -265,15 +260,15 @@ def create_checkpoint(report, report_lock, clock):
     cp = {
         "id": len(_checkpoints) + 1,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "lamport_ts": clock.value(),
+        "vector_ts": clock.value(),
         "report": snapshot
     }
     with _checkpoint_lock:
         _checkpoints.append(cp)
         if len(_checkpoints) > MAX_CHECKPOINTS:
             _checkpoints.pop(0)
-    print(f"\n  📸 Checkpoint #{cp['id']} saved (TS={cp['lamport_ts']})")
-    sse_broadcast("checkpoint_created", {"id": cp["id"], "lamport_ts": cp["lamport_ts"], "timestamp": cp["timestamp"]})
+    print(f"\n  📸 Checkpoint #{cp['id']} saved (TS={cp['vector_ts']})")
+    sse_broadcast("checkpoint_created", {"id": cp["id"], "vector_ts": cp["vector_ts"], "timestamp": cp["timestamp"]})
     return cp
 
 def increment_edit_count(report, report_lock, clock, count=1):
@@ -296,7 +291,7 @@ def do_rollback(config, clock, report, report_lock):
     print(f"\n{'═'*W}")
     print(f"  ⏪ ROLLBACK TO CHECKPOINT #{checkpoint['id']}")
     print(f"{'─'*W}")
-    print(f"  Checkpoint TS : {checkpoint['lamport_ts']}")
+    print(f"  Checkpoint TS : {checkpoint['vector_ts']}")
     print(f"  Saved at      : {checkpoint['timestamp']}")
     print(f"{'─'*W}")
 
@@ -311,7 +306,7 @@ def do_rollback(config, clock, report, report_lock):
     print(f"  ✅ Local state reverted to Checkpoint #{checkpoint['id']}")
 
     rollback_pkt = {
-        "type": "ROLLBACK", "node_id": node_id, "lamport_ts": ts,
+        "type": "ROLLBACK", "node_id": node_id, "vector_ts": ts,
         "report": checkpoint["report"], "checkpoint_id": checkpoint["id"]
     }
     broadcast(config, rollback_pkt)
@@ -319,7 +314,7 @@ def do_rollback(config, clock, report, report_lock):
     with report_lock:
         report_copy = json.loads(json.dumps(report))
     sse_broadcast("rollback", {"report": report_copy, "checkpoint_id": checkpoint["id"], "ts": ts, "by_node": node_id})
-    notify_dashboard(config, report_copy, {"node_id": node_id, "field": "ROLLBACK", "value": f"Checkpoint #{checkpoint['id']}", "lamport_ts": ts, "operation": "ROLLBACK"})
+    notify_dashboard(config, report_copy, {"node_id": node_id, "field": "ROLLBACK", "value": f"Checkpoint #{checkpoint['id']}", "vector_ts": ts, "operation": "ROLLBACK"})
     print(f"  📡 Rollback broadcast to all peers")
     print(f"{'═'*W}\n")
     return True, f"Rolled back to Checkpoint #{checkpoint['id']}"
@@ -334,7 +329,7 @@ def list_checkpoints():
         print(f"  📸 SAVED CHECKPOINTS  ({len(_checkpoints)} total)")
         print(f"{'─'*W}")
         for cp in _checkpoints:
-            print(f"  #{cp['id']:>2}  |  TS={cp['lamport_ts']:<6}  |  {cp['timestamp']}")
+            print(f"  #{cp['id']:>2}  |  TS={cp['vector_ts']:<6}  |  {cp['timestamp']}")
         print(f"{'─'*W}")
         print(f"  Type 'rollback' to revert to the latest checkpoint")
         print(f"{'═'*W}\n")
@@ -369,7 +364,7 @@ def start_election(config, clock):
 
     got_answer = False
     for peer in higher_peers:
-        pkt = {"type": "ELECTION", "node_id": node_id, "lamport_ts": clock.tick()}
+        pkt = {"type": "ELECTION", "node_id": node_id, "vector_ts": clock.tick()}
         print(f"  → Sending ELECTION to {peer['node_id']}...")
         ok = tcp_send(peer["host"], peer["tcp_port"], pkt)
         if ok:
@@ -402,121 +397,13 @@ def declare_leader(config, clock, leader_id):
     if leader_id == node_id:
         print(f"  👑 {node_id} is now the LEADER")
         print(f"{'═'*W}\n")
-        coord_pkt = {"type": "COORDINATOR", "node_id": node_id, "leader_id": node_id, "lamport_ts": ts}
+        coord_pkt = {"type": "COORDINATOR", "node_id": node_id, "leader_id": node_id, "vector_ts": ts}
         for peer in config["peers"]:
             tcp_send(peer["host"], peer["tcp_port"], coord_pkt)
 
     write_audit(node_id, ts, "ELECTION", "leader", leader_id)
     add_audit_entry(node_id, ts, "ELECTION", "leader", f"👑 {leader_id} elected")
     sse_broadcast("leader_elected", {"leader_id": leader_id, "elected_by": node_id, "ts": ts})
-
-
-# ═══════════════════════════════════════════════════════════════
-#  [FEATURE 9]  TWO-PHASE COMMIT FUNCTIONS
-# ═══════════════════════════════════════════════════════════════
-def do_2pc_edit(config, clock, report, report_lock, operation, field, value):
-    node_id = config["node_id"]
-    W = 56
-    tx_id = str(uuid.uuid4())[:8]
-    ts = clock.tick()
-
-    online_peers = []
-    with _peer_lock:
-        for peer in config["peers"]:
-            if peer_status.get(peer["node_id"], "UNKNOWN") == "ONLINE":
-                online_peers.append(peer)
-
-    print(f"\n{'═'*W}")
-    print(f"  ⚛️  TWO-PHASE COMMIT — Transaction {tx_id}")
-    print(f"{'─'*W}")
-    print(f"  Field     : {field} (CRITICAL)")
-    print(f"  Operation : {operation}")
-    print(f"  Value     : \"{value}\"")
-    print(f"  Peers     : {len(online_peers)} online")
-    print(f"{'─'*W}")
-
-    if not online_peers:
-        print(f"  ℹ️  No peers online — single-node commit")
-        with report_lock:
-            apply_edit(report, operation, field, value)
-            save_report(report)
-        write_audit(node_id, ts, "2PC-COMMIT(solo)", field, value)
-        add_audit_entry(node_id, ts, "2PC-COMMIT", field, f"{value} (solo)")
-        with report_lock:
-            rc = json.loads(json.dumps(report))
-        sse_broadcast("report_update", {"report": rc, "editor": node_id, "field": field, "value": value, "ts": ts, "conflict": False, "two_pc": True})
-        notify_dashboard(config, rc, {"node_id": node_id, "field": field, "value": value, "lamport_ts": ts, "operation": operation})
-        increment_edit_count(report, report_lock, clock)
-        print(f"  ✅ Committed locally (no peers)")
-        print(f"{'═'*W}\n")
-        return True, f"[2PC-COMMIT] {field} → \"{value}\" (solo)"
-
-    # PHASE 1: PREPARE
-    print(f"  📋 PHASE 1: Sending PREPARE to all peers...")
-    vote_event = threading.Event()
-    with _2pc_lock:
-        _2pc_votes[tx_id] = {"votes": {}, "event": vote_event, "expected": len(online_peers)}
-
-    prep_pkt = {"type": "PREPARE", "tx_id": tx_id, "node_id": node_id, "lamport_ts": ts, "operation": operation, "field": field, "value": value}
-    for peer in online_peers:
-        ok = tcp_send(peer["host"], peer["tcp_port"], prep_pkt)
-        print(f"    → PREPARE to {peer['node_id']}: {'sent' if ok else 'FAILED'}")
-        if not ok:
-            with _2pc_lock:
-                _2pc_votes[tx_id]["votes"][peer["node_id"]] = False
-
-    print(f"  ⏳ Waiting for votes (timeout: {TWO_PC_TIMEOUT}s)...")
-    vote_event.wait(timeout=TWO_PC_TIMEOUT)
-
-    with _2pc_lock:
-        vote_data = _2pc_votes.pop(tx_id, {"votes": {}})
-        votes = vote_data["votes"]
-
-    all_yes = True
-    for peer in online_peers:
-        v = votes.get(peer["node_id"])
-        if v is True:
-            print(f"    ← {peer['node_id']}: VOTE YES ✅")
-        elif v is False:
-            print(f"    ← {peer['node_id']}: VOTE NO ❌")
-            all_yes = False
-        else:
-            print(f"    ← {peer['node_id']}: TIMEOUT ⏰")
-            all_yes = False
-    print(f"{'─'*W}")
-
-    if all_yes:
-        # PHASE 2: COMMIT
-        print(f"  ✅ All votes: YES — PHASE 2: COMMIT")
-        with report_lock:
-            apply_edit(report, operation, field, value)
-            save_report(report)
-        write_audit(node_id, ts, "2PC-COMMIT", field, value)
-        add_audit_entry(node_id, ts, "2PC-COMMIT", field, value)
-        commit_pkt = {"type": "COMMIT_2PC", "tx_id": tx_id, "node_id": node_id, "lamport_ts": ts, "operation": operation, "field": field, "value": value}
-        for peer in online_peers:
-            tcp_send(peer["host"], peer["tcp_port"], commit_pkt)
-        with report_lock:
-            rc = json.loads(json.dumps(report))
-        sse_broadcast("report_update", {"report": rc, "editor": node_id, "field": field, "value": value, "ts": ts, "conflict": False, "two_pc": True})
-        sse_broadcast("two_pc_result", {"tx_id": tx_id, "result": "COMMIT", "field": field, "value": value, "ts": ts})
-        notify_dashboard(config, rc, {"node_id": node_id, "field": field, "value": value, "lamport_ts": ts, "operation": operation})
-        increment_edit_count(report, report_lock, clock)
-        print(f"  📡 COMMIT broadcast to all peers")
-        print(f"{'═'*W}\n")
-        return True, f"[2PC-COMMIT] {field} → \"{value}\""
-    else:
-        # PHASE 2: ABORT
-        print(f"  ❌ ABORT — Not all peers voted YES")
-        write_audit(node_id, ts, "2PC-ABORT", field, value)
-        add_audit_entry(node_id, ts, "2PC-ABORT", field, f"ABORTED: {value}")
-        abort_pkt = {"type": "ABORT_2PC", "tx_id": tx_id, "node_id": node_id, "lamport_ts": ts, "field": field, "value": value}
-        for peer in online_peers:
-            tcp_send(peer["host"], peer["tcp_port"], abort_pkt)
-        sse_broadcast("two_pc_result", {"tx_id": tx_id, "result": "ABORT", "field": field, "value": value, "ts": ts, "reason": "Not all peers voted YES"})
-        print(f"  📡 ABORT broadcast to all peers")
-        print(f"{'═'*W}\n")
-        return False, f"2PC ABORT — critical update to '{field}' cancelled"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -533,7 +420,7 @@ def notify_dashboard(config, report, last_edit):
             "type": "DASHBOARD_UPDATE", "report": report,
             "node_id": last_edit.get("node_id", config["node_id"]),
             "field": last_edit.get("field", ""), "value": last_edit.get("value", ""),
-            "lamport_ts": last_edit.get("lamport_ts", 0),
+            "vector_ts": last_edit.get("vector_ts", 0),
             "operation": last_edit.get("operation", ""),
             "nodes_status": status, "audit_log": audit_copy,
             "leader": _current_leader
@@ -571,7 +458,7 @@ def dispatch_packet(packet, config, clock, report, report_lock):
     if ptype == "EDIT":
         if is_doc_locked():
             return
-        clock.update(packet["lamport_ts"])
+        clock.update(packet["vector_ts"])
         enqueue_edit(packet)
 
     elif ptype == "REJOIN_REQUEST":
@@ -580,16 +467,16 @@ def dispatch_packet(packet, config, clock, report, report_lock):
             snapshot = json.loads(json.dumps(report))
         with _audit_lock:
             audit_copy = list(_audit_entries)
-        response = {"type": "SNAPSHOT", "report": snapshot, "lamport_ts": clock.value(), "node_id": config["node_id"], "audit_log": audit_copy}
+        response = {"type": "SNAPSHOT", "report": snapshot, "vector_ts": clock.value(), "node_id": config["node_id"], "audit_log": audit_copy}
         for peer in config["peers"]:
             if peer["node_id"] == requester_id:
                 tcp_send(peer["host"], peer["tcp_port"], response)
                 break
 
     elif ptype == "SNAPSHOT":
-        received_ts = packet["lamport_ts"]
+        received_ts = packet["vector_ts"]
         with report_lock:
-            if received_ts > clock.value():
+            if sum(received_ts.values() if isinstance(received_ts, dict) else [0]) > sum(clock.value().values()):
                 for key, val in packet["report"].items():
                     report[key] = val
                 save_report(report)
@@ -619,10 +506,10 @@ def dispatch_packet(packet, config, clock, report, report_lock):
     # ── FEATURE 7: Leader Election ──
     elif ptype == "ELECTION":
         sender = packet["node_id"]
-        clock.update(packet["lamport_ts"])
+        clock.update(packet["vector_ts"])
         print(f"\n  🗳️  Received ELECTION from {sender}")
         if get_node_priority(node_id) > get_node_priority(sender):
-            ans = {"type": "ANSWER", "node_id": node_id, "lamport_ts": clock.tick()}
+            ans = {"type": "ANSWER", "node_id": node_id, "vector_ts": clock.tick()}
             for peer in config["peers"]:
                 if peer["node_id"] == sender:
                     tcp_send(peer["host"], peer["tcp_port"], ans)
@@ -632,19 +519,19 @@ def dispatch_packet(packet, config, clock, report, report_lock):
         print(f"[{node_id} | TS={clock.value()}]> ", end="", flush=True)
 
     elif ptype == "ANSWER":
-        clock.update(packet["lamport_ts"])
+        clock.update(packet["vector_ts"])
         print(f"\n  📨 Received ANSWER from {packet['node_id']} — they will take over election")
         print(f"[{node_id} | TS={clock.value()}]> ", end="", flush=True)
 
     elif ptype == "COORDINATOR":
         global _current_leader, _election_in_progress
         leader_id = packet["leader_id"]
-        clock.update(packet["lamport_ts"])
+        clock.update(packet["vector_ts"])
         with _election_lock:
             _current_leader = leader_id
             _election_in_progress = False
         print(f"\n  👑 {leader_id} is now the LEADER (COORDINATOR received)")
-        sse_broadcast("leader_elected", {"leader_id": leader_id, "elected_by": packet["node_id"], "ts": packet["lamport_ts"]})
+        sse_broadcast("leader_elected", {"leader_id": leader_id, "elected_by": packet["node_id"], "ts": packet["vector_ts"]})
         write_audit(node_id, clock.value(), "ELECTION", "leader", leader_id)
         add_audit_entry(node_id, clock.value(), "ELECTION", "leader", f"👑 {leader_id} elected")
         print(f"[{node_id} | TS={clock.value()}]> ", end="", flush=True)
@@ -652,7 +539,7 @@ def dispatch_packet(packet, config, clock, report, report_lock):
     # ── FEATURE 8: Rollback ──
     elif ptype == "ROLLBACK":
         sender = packet["node_id"]
-        clock.update(packet["lamport_ts"])
+        clock.update(packet["vector_ts"])
         with report_lock:
             for key, val in packet["report"].items():
                 report[key] = val
@@ -665,59 +552,6 @@ def dispatch_packet(packet, config, clock, report, report_lock):
             rc = json.loads(json.dumps(report))
         sse_broadcast("rollback", {"report": rc, "checkpoint_id": cp_id, "ts": clock.value(), "by_node": sender})
         print(f"[{node_id} | TS={clock.value()}]> ", end="", flush=True)
-
-    # ── FEATURE 9: Two-Phase Commit ──
-    elif ptype == "PREPARE":
-        tx_id = packet["tx_id"]
-        sender = packet["node_id"]
-        clock.update(packet["lamport_ts"])
-        can_commit = not is_doc_locked()
-        vote = "YES" if can_commit else "NO"
-        print(f"\n  ⚛️  PREPARE received from {sender} (TX={tx_id})")
-        print(f"     Field: {packet['field']} → \"{packet['value']}\"")
-        print(f"     My vote: {vote} {'✅' if can_commit else '❌'}")
-        vote_pkt = {"type": "VOTE_YES" if can_commit else "VOTE_NO", "tx_id": tx_id, "node_id": node_id, "lamport_ts": clock.tick()}
-        for peer in config["peers"]:
-            if peer["node_id"] == sender:
-                tcp_send(peer["host"], peer["tcp_port"], vote_pkt)
-                break
-        print(f"[{node_id} | TS={clock.value()}]> ", end="", flush=True)
-
-    elif ptype in ("VOTE_YES", "VOTE_NO"):
-        tx_id = packet["tx_id"]
-        voter = packet["node_id"]
-        clock.update(packet["lamport_ts"])
-        is_yes = (ptype == "VOTE_YES")
-        with _2pc_lock:
-            if tx_id in _2pc_votes:
-                _2pc_votes[tx_id]["votes"][voter] = is_yes
-                if len(_2pc_votes[tx_id]["votes"]) >= _2pc_votes[tx_id]["expected"]:
-                    _2pc_votes[tx_id]["event"].set()
-
-    elif ptype == "COMMIT_2PC":
-        clock.update(packet["lamport_ts"])
-        with report_lock:
-            apply_edit(report, packet["operation"], packet["field"], packet["value"])
-            save_report(report)
-        print(f"\n  ⚛️  2PC COMMIT (TX={packet['tx_id']}) — {packet['field']} → \"{packet['value']}\"")
-        write_audit(node_id, clock.value(), "2PC-COMMIT-RECV", packet["field"], packet["value"])
-        add_audit_entry(node_id, clock.value(), "2PC-COMMIT", packet["field"], packet["value"])
-        with report_lock:
-            rc = json.loads(json.dumps(report))
-        sse_broadcast("report_update", {"report": rc, "editor": packet["node_id"], "field": packet["field"], "value": packet["value"], "ts": packet["lamport_ts"], "conflict": False, "two_pc": True})
-        sse_broadcast("two_pc_result", {"tx_id": packet["tx_id"], "result": "COMMIT", "field": packet["field"], "value": packet["value"], "ts": packet["lamport_ts"]})
-        increment_edit_count(report, report_lock, clock)
-        notify_dashboard(config, rc, packet)
-        print(f"[{node_id} | TS={clock.value()}]> ", end="", flush=True)
-
-    elif ptype == "ABORT_2PC":
-        clock.update(packet["lamport_ts"])
-        print(f"\n  ⚛️  2PC ABORT (TX={packet['tx_id']}) — {packet['field']} NOT applied")
-        write_audit(node_id, clock.value(), "2PC-ABORT-RECV", packet["field"], packet["value"])
-        add_audit_entry(node_id, clock.value(), "2PC-ABORT", packet["field"], f"ABORTED: {packet['value']}")
-        sse_broadcast("two_pc_result", {"tx_id": packet["tx_id"], "result": "ABORT", "field": packet["field"], "value": packet["value"], "ts": packet["lamport_ts"]})
-        print(f"[{node_id} | TS={clock.value()}]> ", end="", flush=True)
-
 
 def tcp_server(config, clock, report, report_lock):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -819,7 +653,6 @@ def failure_detector(config, clock):
 def do_edit(config, clock, report, report_lock, operation, field, value):
     node_id = config["node_id"]
     owned   = config["owned_fields"]
-    critical = config.get("critical_fields", [])
 
     if is_doc_locked():
         msg = "🔒 Document is LOCKED. No edits allowed."
@@ -832,12 +665,8 @@ def do_edit(config, clock, report, report_lock, operation, field, value):
         print(f"       Your fields: {', '.join(owned)}\n")
         return False, msg
 
-    # [FEATURE 9] Critical fields use Two-Phase Commit
-    if field in critical:
-        return do_2pc_edit(config, clock, report, report_lock, operation, field, value)
-
     ts = clock.tick()
-    packet = {"type": "EDIT", "node_id": node_id, "lamport_ts": ts, "operation": operation, "field": field, "value": value}
+    packet = {"type": "EDIT", "node_id": node_id, "vector_ts": ts, "operation": operation, "field": field, "value": value}
 
     with report_lock:
         apply_edit(report, operation, field, value)
@@ -869,11 +698,11 @@ def run_conflict_test(config, clock, report, report_lock):
     W       = 56
     ts = clock.tick()
 
-    edit_mine = {"type": "EDIT", "node_id": node_id, "lamport_ts": ts, "operation": "update", "field": field, "value": f"Entry by {node_id} at TS={ts}"}
-    edit_peer = {"type": "EDIT", "node_id": peer["node_id"], "lamport_ts": ts, "operation": "update", "field": field, "value": f"Entry by {peer['node_id']} at TS={ts}"}
+    edit_mine = {"type": "EDIT", "node_id": node_id, "vector_ts": ts, "operation": "update", "field": field, "value": f"Entry by {node_id} at TS={ts}"}
+    edit_peer = {"type": "EDIT", "node_id": peer["node_id"], "vector_ts": ts, "operation": "update", "field": field, "value": f"Entry by {peer['node_id']} at TS={ts}"}
 
     print(f"\n{'═'*W}")
-    print(f"  ⚡ CONFLICT TEST — LAMPORT CLOCK RESOLUTION")
+    print(f"  ⚡ CONFLICT TEST — VECTOR CLOCK RESOLUTION")
     print(f"{'═'*W}")
     print(f"  Field under conflict: {field}")
     print(f"  Scenario: {node_id} and {peer['node_id']} both write")
@@ -883,10 +712,10 @@ def run_conflict_test(config, clock, report, report_lock):
     print(f"  Edit B:  [{peer['node_id']:<4} | TS={ts}]  →  \"{edit_peer['value']}\"")
     print(f"{'─'*W}")
     print(f"  RESOLUTION RULE:")
-    print(f"    Step 1 — Compare Lamport timestamps: {ts} == {ts}  → TIE")
+    print(f"    Step 1 — Compare Vector timestamps: {ts} == {ts}  → TIE")
     print(f"    Step 2 — Tiebreak by node_id (alphabetical order)")
 
-    ordered = sorted([edit_mine, edit_peer], key=lambda e: (e["lamport_ts"], e["node_id"]))
+    ordered = sorted([edit_mine, edit_peer], key=lambda e: (sum(e["vector_ts"].values()) if isinstance(e["vector_ts"], dict) else 0, e["node_id"]))
     winner, loser = ordered[0], ordered[1]
 
     print(f"{'─'*W}")
@@ -954,8 +783,7 @@ def print_banner(config):
     print("─"*W)
     print(f"   Your owned fields:")
     for f in config["owned_fields"]:
-        badge = " ⚛️ CRITICAL (2PC)" if f in crit else ""
-        print(f"     • {f}{badge}")
+        print(f"     • {f}")
     print(f"\n   🌐 Web UI: http://localhost:{config['http_port']}")
     print("═"*W + "\n")
 
@@ -984,14 +812,11 @@ def print_status(config, clock):
     print("\n" + "─"*W)
     print(f"  Node ID       : {config['node_id']}")
     print(f"  Role          : {config['role'].upper()}")
-    print(f"  Lamport Clock : {clock.value()}")
+    print(f"  Vector Clock : {clock.value()}")
     print(f"  TCP Port      : {config['tcp_port']}")
     print(f"  UDP Port      : {config['udp_port']}")
     print(f"  HTTP Port     : {config['http_port']}")
     print(f"  Owned Fields  : {', '.join(config['owned_fields'])}")
-    crit = config.get("critical_fields", [])
-    if crit:
-        print(f"  Critical (2PC): {', '.join(crit)}")
     print(f"  👑 Leader     : {_current_leader or 'NONE (election pending)'}")
     print("  Peers:")
     with _peer_lock:
@@ -1035,7 +860,7 @@ def api_report():
     with _report_lock:
         return jsonify({
             "report": json.loads(json.dumps(_report)),
-            "lamport_ts": _clock.value(), "locked": is_doc_locked(),
+            "vector_ts": _clock.value(), "locked": is_doc_locked(),
             "leader": _current_leader
         })
 
@@ -1047,7 +872,7 @@ def api_status():
         cp_count = len(_checkpoints)
     return jsonify({
         "node_id": _config["node_id"], "role": _config["role"],
-        "lamport_ts": _clock.value(), "peers": st,
+        "vector_ts": _clock.value(), "peers": st,
         "locked": is_doc_locked(), "leader": _current_leader,
         "checkpoint_count": cp_count
     })
@@ -1064,7 +889,7 @@ def api_edit():
         return jsonify({"ok": False, "error": "Missing field or value"}), 400
     ok, msg = do_edit(_config, _clock, _report, _report_lock, operation, field, value)
     if ok:
-        return jsonify({"ok": True, "message": msg, "lamport_ts": _clock.value()})
+        return jsonify({"ok": True, "message": msg, "vector_ts": _clock.value()})
     else:
         return jsonify({"ok": False, "error": msg}), 403
 
@@ -1104,7 +929,7 @@ def api_audit():
 @app.route("/api/checkpoints")
 def api_checkpoints():
     with _checkpoint_lock:
-        return jsonify([{"id": c["id"], "lamport_ts": c["lamport_ts"], "timestamp": c["timestamp"]} for c in _checkpoints])
+        return jsonify([{"id": c["id"], "vector_ts": c["vector_ts"], "timestamp": c["timestamp"]} for c in _checkpoints])
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1182,7 +1007,7 @@ def main():
     config      = load_config()
     report      = load_report()
     report_lock = threading.Lock()
-    clock       = LamportClock()
+    clock       = VectorClock(config["node_id"])
 
     _config      = config
     _clock       = clock

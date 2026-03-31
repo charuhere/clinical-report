@@ -8,9 +8,6 @@
     "icu.treatment",
     "icu.notes"
   ],
-  "critical_fields": [
-    "icu.treatment"
-  ],
   "tcp_port": 5001,
   "udp_port": 6001,
   "http_port": 8001,

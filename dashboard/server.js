@@ -88,7 +88,7 @@ udpServer.on('message', (msg) => {
         node_id: packet.node_id,
         field: packet.field,
         value: packet.value,
-        lamport_ts: packet.lamport_ts,
+        vector_ts: packet.vector_ts,
         operation: packet.operation,
         nodes_status: nodesStatus,
         audit_log: auditLog,
