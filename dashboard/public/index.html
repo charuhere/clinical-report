@@ -69,16 +69,7 @@
       cursor:pointer; transition:all 0.2s; text-transform:uppercase; letter-spacing:0.5px;
     }
     .btn:active { transform:scale(0.97); }
-    .btn-lock {
-      background:linear-gradient(135deg, var(--danger), #c62828);
-      color:white;
-    }
-    .btn-lock:hover { box-shadow:0 4px 20px rgba(239,83,80,0.3); }
-    .btn-unlock {
-      background:linear-gradient(135deg, var(--success), #2e7d32);
-      color:white;
-    }
-    .btn-unlock:hover { box-shadow:0 4px 20px rgba(102,187,106,0.3); }
+
 
     /* ─── Patient Header ─── */
     .patient-header {
@@ -101,12 +92,7 @@
       background:rgba(255,167,38,0.12); border:1px solid rgba(255,167,38,0.2);
       border-radius:6px; font-size:0.8rem; font-weight:500; color:var(--warning);
     }
-    .ph-lock-badge {
-      position:absolute; top:18px; right:24px;
-      padding:4px 12px; border-radius:20px; font-size:0.7rem; font-weight:600; letter-spacing:0.5px;
-    }
-    .ph-lock-badge.locked { background:rgba(239,83,80,0.2); color:var(--danger); }
-    .ph-lock-badge.unlocked { background:rgba(102,187,106,0.12); color:var(--success); }
+
 
     /* ─── Node Status Cards ─── */
     .node-cards {
@@ -336,7 +322,6 @@
     let nodesStatus = {};
     let auditLog = [];
     let currentLeader = null;
-    let docLocked = false;
 
     const ALL_FIELDS = [
       'icu.bp','icu.oxygen_saturation','icu.heart_rate','icu.treatment','icu.notes',
@@ -382,18 +367,10 @@
           auditLog = data.audit_log;
           renderAudit();
         }
-        if (typeof data.locked !== 'undefined') {
-          docLocked = data.locked;
-          renderLock();
-        }
         if (data.leader) {
           currentLeader = data.leader;
           renderLeader();
         }
-      }
-      else if (data.type === 'lock_status') {
-        docLocked = data.locked;
-        renderLock();
       }
       else if (data.type === 'node_status_update') {
         if (data.nodes_status) { nodesStatus = data.nodes_status; renderNodes(); }
@@ -471,16 +448,7 @@
       });
     }
 
-    function renderLock() {
-      const badge = document.getElementById('lockBadge');
-      if (docLocked) {
-        badge.textContent = '🔒 LOCKED';
-        badge.className = 'ph-lock-badge locked';
-      } else {
-        badge.textContent = '🔓 UNLOCKED';
-        badge.className = 'ph-lock-badge unlocked';
-      }
-    }
+
 
     function renderAudit() {
       const tbody = document.getElementById('auditBody');
@@ -509,28 +477,11 @@
       document.getElementById('auditScroll').scrollTop = 0;
     }
 
-    // ═════════════════════════════════════
-    //  ACTIONS
-    // ═════════════════════════════════════
-    async function lockDoc() {
-      await fetch('/api/lock', { method: 'POST' });
-    }
-
-    async function unlockDoc() {
-      await fetch('/api/unlock', { method: 'POST' });
-    }
-
-    // ═════════════════════════════════════
-    //  HELPERS
-    // ═════════════════════════════════════
     function truncate(s, n) {
       if (!s) return '';
       return s.length > n ? s.slice(0, n) + '…' : s;
     }
 
-    // ═════════════════════════════════════
-    //  BOOT
-    // ═════════════════════════════════════
     connect();
   </script>
 </body>

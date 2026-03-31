@@ -829,7 +829,7 @@ def api_status():
     return jsonify({
         "node_id": _config["node_id"], "role": _config["role"],
         "vector_ts": _clock.value(), "peers": st,
-        "locked": is_doc_locked(), "leader": _current_leader,
+        "leader": _current_leader,
         "checkpoint_count": cp_count
     })
 
@@ -861,7 +861,7 @@ def api_events():
                 rpt = json.loads(json.dumps(_report))
             with _peer_lock:
                 st = dict(peer_status)
-            initial = {"report": rpt, "ts": _clock.value(), "locked": is_doc_locked(), "peers": st, "leader": _current_leader}
+            initial = {"report": rpt, "ts": _clock.value(), "peers": st, "leader": _current_leader}
             yield f"event: initial_state\ndata: {json.dumps(initial)}\n\n"
             while True:
                 try:
