@@ -22,15 +22,11 @@ import sys
 import shlex
 import queue
 import os
-import uuid
 from datetime import datetime
 
 from flask import Flask, Response, request, jsonify
 
 
-# ═══════════════════════════════════════════════════════════════
-#  VECTOR CLOCK
-# ═══════════════════════════════════════════════════════════════
 class VectorClock:
     def __init__(self, node_id):
         self._node_id = node_id

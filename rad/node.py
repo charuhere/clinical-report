@@ -22,7 +22,6 @@ import sys
 import shlex
 import queue
 import os
-import uuid
 from datetime import datetime
 
 from flask import Flask, Response, request, jsonify
