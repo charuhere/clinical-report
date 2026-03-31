@@ -12,17 +12,14 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const dgram = require('dgram');
-const net = require('net');
 const path = require('path');
 
 const HTTP_PORT = 4000;
 const UDP_PORT = 7000;
 const HEARTBEAT_TIMEOUT = 9000; // ms
 
-const NODES = [
-  { id: 'ICU', host: 'localhost', tcpPort: 5001 },
-  { id: 'RAD', host: 'localhost', tcpPort: 5002 }
-];
+// Only IDs needed to track heartbeats (Dashboard no longer pushes TCP)
+const NODE_IDS = ['ICU', 'RAD'];
 
 // ─── State ───
 let latestReport = null;
@@ -43,22 +40,21 @@ const wss = new WebSocket.Server({ server });
 
 wss.on('connection', (ws) => {
   console.log('[WS] Client connected');
-  const initial = {
+  ws.send(JSON.stringify({
     type: 'initial_state',
     report: latestReport,
     nodes_status: nodesStatus,
     audit_log: auditLog,
     leader: currentLeader
-  };
-  ws.send(JSON.stringify(initial));
+  }));
   ws.on('close', () => console.log('[WS] Client disconnected'));
 });
 
 function broadcastToWS(data) {
   const msg = JSON.stringify(data);
-  wss.clients.forEach((client) => {
+  for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(msg);
-  });
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -69,38 +65,31 @@ const udpServer = dgram.createSocket('udp4');
 udpServer.on('message', (msg) => {
   try {
     const packet = JSON.parse(msg.toString());
+    const { type, leader, node_id } = packet;
 
-    if (packet.type === 'DASHBOARD_UPDATE') {
-      latestReport = packet.report;
-      nodesStatus = packet.nodes_status || nodesStatus;
-      if (packet.leader) currentLeader = packet.leader;
+    // Both update types can include leader information
+    if (leader) currentLeader = leader;
 
-      if (packet.audit_log && packet.audit_log.length > 0) {
-        auditLog = packet.audit_log;
-      }
+    if (type === 'DASHBOARD_UPDATE') {
+      const { report, nodes_status, audit_log, field, value, vector_ts, operation } = packet;
+
+      latestReport = report;
+      nodesStatus = nodes_status || nodesStatus;
+      if (audit_log?.length) auditLog = audit_log; // Optional chaining
 
       broadcastToWS({
         type: 'report_update',
-        report: packet.report,
-        node_id: packet.node_id,
-        field: packet.field,
-        value: packet.value,
-        vector_ts: packet.vector_ts,
-        operation: packet.operation,
-        nodes_status: nodesStatus,
-        audit_log: auditLog,
+        report, node_id, field, value, vector_ts, operation, // Object shorthand
+        nodes_status: nodesStatus, 
+        audit_log: auditLog, 
         leader: currentLeader
       });
-    }
+    } else if (type === 'HEARTBEAT') {
+      lastHeartbeat[node_id] = Date.now();
 
-    if (packet.type === 'HEARTBEAT') {
-      const nodeId = packet.node_id;
-      lastHeartbeat[nodeId] = Date.now();
-      if (packet.leader) currentLeader = packet.leader;
-
-      // Mark as online
-      if (nodesStatus[nodeId] !== 'ONLINE') {
-        nodesStatus[nodeId] = 'ONLINE';
+      // Mark as online if previously disconnected
+      if (nodesStatus[node_id] !== 'ONLINE') {
+        nodesStatus[node_id] = 'ONLINE';
         broadcastToWS({
           type: 'node_status_update',
           nodes_status: nodesStatus,
@@ -125,13 +114,13 @@ udpServer.bind(UDP_PORT);
 setInterval(() => {
   const now = Date.now();
   let changed = false;
-  for (const node of NODES) {
-    const lastSeen = lastHeartbeat[node.id];
+  for (const nodeId of NODE_IDS) {
+    const lastSeen = lastHeartbeat[nodeId];
     if (lastSeen && (now - lastSeen) > HEARTBEAT_TIMEOUT) {
-      if (nodesStatus[node.id] !== 'OFFLINE') {
-        nodesStatus[node.id] = 'OFFLINE';
+      if (nodesStatus[nodeId] !== 'OFFLINE') {
+        nodesStatus[nodeId] = 'OFFLINE';
         changed = true;
-        console.log(`[HEARTBEAT] ${node.id} is OFFLINE`);
+        console.log(`[HEARTBEAT] ${nodeId} is OFFLINE`);
       }
     }
   }
@@ -147,14 +136,12 @@ setInterval(() => {
 
 
 // ─── Status endpoint ───
-app.get('/api/status', (req, res) => {
-  res.json({
-    report: latestReport,
-    nodes_status: nodesStatus,
-    audit_log: auditLog,
-    leader: currentLeader
-  });
-});
+app.get('/api/status', (req, res) => res.json({
+  report: latestReport,
+  nodes_status: nodesStatus,
+  audit_log: auditLog,
+  leader: currentLeader
+}));
 
 // ═══════════════════════════════════════════════════════
 //  START

@@ -19,12 +19,12 @@ class VectorClock:
 
     def tick(self):
         with self._lock:
-            self._vector[self._node_id] = self._vector.get(self._node_id, 0) + 1
+            self._vector[self._node_id] += 1
             return dict(self._vector)
 
     def update(self, received_ts):
         with self._lock:
-            self._vector[self._node_id] = self._vector.get(self._node_id, 0) + 1
+            self._vector[self._node_id] += 1
             if isinstance(received_ts, dict):
                 for k, v in received_ts.items():
                     self._vector[k] = max(self._vector.get(k, 0), v)
@@ -263,8 +263,7 @@ def do_rollback(config, clock, report, report_lock):
 
     ts = clock.tick()
     with report_lock:
-        for key, val in checkpoint["report"].items():
-            report[key] = val
+        report.update(checkpoint["report"])
         save_report(report)
 
     write_audit(node_id, ts, "ROLLBACK", "ALL", f"Checkpoint #{checkpoint['id']}")
@@ -391,9 +390,8 @@ def notify_dashboard(config, report, last_edit):
             "nodes_status": status, "audit_log": audit_copy,
             "leader": _current_leader
         }
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.sendto(json.dumps(packet).encode(), (config.get("dashboard_host", "localhost"), config.get("dashboard_port", 7000)))
-        sock.close()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.sendto(json.dumps(packet).encode(), (config.get("dashboard_host", "localhost"), config.get("dashboard_port", 7000)))
     except Exception:
         pass
 
@@ -402,20 +400,15 @@ def notify_dashboard(config, report, last_edit):
 #  TCP SERVER + DISPATCH
 # ═══════════════════════════════════════════════════════════════
 def handle_connection(conn, config, clock, report, report_lock):
-    try:
-        data = b""
-        while True:
-            chunk = conn.recv(4096)
-            if not chunk:
-                break
-            data += chunk
-        if data:
-            packet = json.loads(data.decode())
-            dispatch_packet(packet, config, clock, report, report_lock)
-    except Exception:
-        pass
-    finally:
-        conn.close()
+    with conn:
+        try:
+            data = b""
+            while chunk := conn.recv(4096):
+                data += chunk
+            if data:
+                dispatch_packet(json.loads(data), config, clock, report, report_lock)
+        except Exception:
+            pass
 
 def dispatch_packet(packet, config, clock, report, report_lock):
     ptype = packet.get("type")
@@ -441,8 +434,7 @@ def dispatch_packet(packet, config, clock, report, report_lock):
         received_ts = packet["vector_ts"]
         with report_lock:
             if sum(received_ts.values() if isinstance(received_ts, dict) else [0]) > sum(clock.value().values()):
-                for key, val in packet["report"].items():
-                    report[key] = val
+                report.update(packet["report"])
                 save_report(report)
                 clock.update(received_ts)
                 if "audit_log" in packet and packet["audit_log"]:
@@ -481,6 +473,13 @@ def dispatch_packet(packet, config, clock, report, report_lock):
         global _current_leader, _election_in_progress
         leader_id = packet["leader_id"]
         clock.update(packet["vector_ts"])
+
+        # SPLIT-BRAIN FIX: If sender is subordinate to us, reject their reign and bully them!
+        if get_node_priority(node_id) > get_node_priority(leader_id):
+            print(f"\n  ❌ Invalid COORDINATOR claim from {leader_id} (I have higher priority!)")
+            threading.Thread(target=start_election, args=(config, clock), daemon=True).start()
+            return
+
         with _election_lock:
             _current_leader = leader_id
             _election_in_progress = False
@@ -495,8 +494,7 @@ def dispatch_packet(packet, config, clock, report, report_lock):
         sender = packet["node_id"]
         clock.update(packet["vector_ts"])
         with report_lock:
-            for key, val in packet["report"].items():
-                report[key] = val
+            report.update(packet["report"])
             save_report(report)
         cp_id = packet.get("checkpoint_id", "?")
         print(f"\n ROLLBACK received from {sender} — reverted to Checkpoint #{cp_id}")
@@ -522,11 +520,10 @@ def tcp_server(config, clock, report, report_lock):
 # ═══════════════════════════════════════════════════════════════
 def tcp_send(host, port, packet):
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(3)
-        s.connect((host, port))
-        s.sendall(json.dumps(packet).encode())
-        s.close()
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(3)
+            s.connect((host, port))
+            s.sendall(json.dumps(packet).encode())
         return True
     except Exception:
         return False
@@ -567,7 +564,7 @@ def heartbeat_listener(config):
     while True:
         try:
             data, _ = sock.recvfrom(1024)
-            pkt = json.loads(data.decode())
+            pkt = json.loads(data)
             if pkt.get("type") == "HEARTBEAT":
                 pid = pkt["node_id"]
                 with _peer_lock:
@@ -578,7 +575,8 @@ def heartbeat_listener(config):
                     print(f"\n  ✅ {pid} is back ONLINE")
                     sse_broadcast("peer_status", {"peer_id": pid, "status": "ONLINE"})
                     if get_node_priority(pid) > get_node_priority(config["node_id"]):
-                        pass  # Higher-priority node returns — it will start its own election
+                        # Higher-priority node returns from partition — trigger election to surrender leadership! (Split-Brain Fix)
+                        threading.Thread(target=start_election, args=(config, clock), daemon=True).start()
         except Exception:
             pass
 
