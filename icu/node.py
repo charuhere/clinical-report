@@ -1,19 +1,3 @@
-#!/usr/bin/env python3
-"""
-Distributed Clinical Report Editing System
-node.py — Full Implementation with 9 Distributed Computing Features
-
-Features:
-  1. P2P Sync (UDP/TCP)         2. Decentralized Access Control
-  3. Heartbeat Failure Detection 4. State Recovery (Crash & Rejoin)
-  5. Distributed Lock (TCP)      6. Vector Clock Conflict Resolution
-  7. Leader Election (Bully)     8. Checkpointing & Rollback
-
-Run from inside a node folder:
-    cd icu/ && python node.py
-    cd rad/ && python node.py
-"""
-
 import socket
 import threading
 import json
@@ -305,7 +289,7 @@ def list_checkpoints():
     W = 56
     with _checkpoint_lock:
         if not _checkpoints:
-            print(f"\n  ℹ️  No checkpoints saved yet. (Auto-saves every {CHECKPOINT_EVERY} edits)")
+            print(f"\n No checkpoints saved yet. (Auto-saves every {CHECKPOINT_EVERY} edits)")
             return
         print(f"\n{'═'*W}")
         print(f"  📸 SAVED CHECKPOINTS  ({len(_checkpoints)} total)")
@@ -334,7 +318,7 @@ def start_election(config, clock):
         _election_in_progress = True
 
     print(f"\n{'═'*W}")
-    print(f"  🗳️  ELECTION TRIGGERED by {node_id}")
+    print(f" ELECTION TRIGGERED by {node_id}")
     print(f"{'─'*W}")
 
     higher_peers = [p for p in config["peers"]
@@ -490,7 +474,7 @@ def dispatch_packet(packet, config, clock, report, report_lock):
 
     elif ptype == "ANSWER":
         clock.update(packet["vector_ts"])
-        print(f"\n  📨 Received ANSWER from {packet['node_id']} — they will take over election")
+        print(f"\n  Received ANSWER from {packet['node_id']} — they will take over election")
         print(f"[{node_id} | TS={clock.value()}]> ", end="", flush=True)
 
     elif ptype == "COORDINATOR":
@@ -515,7 +499,7 @@ def dispatch_packet(packet, config, clock, report, report_lock):
                 report[key] = val
             save_report(report)
         cp_id = packet.get("checkpoint_id", "?")
-        print(f"\n  ⏪ ROLLBACK received from {sender} — reverted to Checkpoint #{cp_id}")
+        print(f"\n ROLLBACK received from {sender} — reverted to Checkpoint #{cp_id}")
         write_audit(node_id, clock.value(), "ROLLBACK-RECV", "ALL", f"Checkpoint #{cp_id} from {sender}")
         add_audit_entry(node_id, clock.value(), "ROLLBACK", "ALL", f"Reverted via {sender}")
         with report_lock:
@@ -1016,3 +1000,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
